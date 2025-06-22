@@ -7,6 +7,20 @@ export interface ChatMessage {
   thinking?: ThinkingProcess;
   toolCalls?: ToolCall[];
   metadata?: Record<string, unknown>;
+  threadId: string;
+}
+
+export interface ChatThread {
+  id: string;
+  title: string;
+  description?: string;
+  tags: string[]; // JSON array stored as string in DB
+  lastMessageAt?: string; // ISO timestamp
+  isArchived: boolean;
+  isPinned: boolean;
+  messageCount: number;
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
 }
 
 export interface ChatAttachment {
