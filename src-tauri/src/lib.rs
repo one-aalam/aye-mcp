@@ -126,7 +126,7 @@ pub fn run() {
                 
                 -- Trigger to update thread metadata when messages are added/updated
                 CREATE TRIGGER IF NOT EXISTS update_thread_on_message_insert
-                AFTER INSERT ON chat_message
+                AFTER INSERT ON chat_messages
                 BEGIN
                     UPDATE chat_threads 
                     SET 
