@@ -13,7 +13,7 @@ pub fn run() {
         Migration {
             version: 1,
             description: "create_initial_tables",
-            sql: "CREATE TABLE IF NOT EXISTS chat_message (id text PRIMARY KEY NOT NULL, role text NOT NULL, parts json[], attachments json[], created_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+            sql: "CREATE TABLE IF NOT EXISTS chat_message (id text PRIMARY KEY NOT NULL, role text NOT NULL, content text NOT NULL, attachments json[], created_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL);",
             kind: MigrationKind::Up,
         }
     ];

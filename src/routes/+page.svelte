@@ -2,9 +2,11 @@
   import { onMount } from "svelte";
   import ChatContainer from "@/components/chat/chat-container.svelte";
   import { createChatMessage } from "../lib";
+  import { addChatMessage, getChatMessages } from "@/db/chat_message";
   import { appPrefs, messageThread } from "../lib/stores/index.js";
   import type { ChatAttachment } from "@/types";
   import { CUSTOM_SUGGESTIONS, INITIAL_MESSAGES } from "../lib/constants";
+  import { nanoid } from "nanoid";
 
 
   appPrefs.updateConfig({
@@ -22,21 +24,36 @@
     enableDelete: true,
   })
   // Event handlers
-  function handleMessageSend(data: { content: string; attachments: ChatAttachment[] | undefined; }): void {
+  async function handleMessageSend(data: { content: string; attachments: ChatAttachment[] | undefined; }): Promise<void> {
     console.log('Message sent:', data);
     
     // Simulate typing indicator
-    messageThread.addMessage(createChatMessage(data.content, 'user'));
+    const message = createChatMessage(data.content, 'user');
+    messageThread.addMessage(message);
+    await addChatMessage({
+      id: nanoid(),
+      role: message.role,
+      content: message.content,
+      attachments: message.attachments || [],
+      timestamp: new Date(),
+    });
     messageThread.setTyping(true);
     
     // Simulate AI response after delay
-    setTimeout(() => {
+    setTimeout(async () => {
       const aiResponse = createChatMessage(
         'I received your message! This is a simulated AI response.',
         'assistant'
       );
       
       messageThread.addMessage(aiResponse);
+      await addChatMessage({
+        id: nanoid(),
+        role: aiResponse.role,
+        content: aiResponse.content,
+        attachments: aiResponse.attachments || [],
+        timestamp: new Date(),
+      });
       messageThread.setTyping(false);
     }, 2000);
   }
@@ -110,13 +127,22 @@
   }
 
 
-    onMount(() => {
+    onMount(async () => {
+      const messages = await getChatMessages();
       // Set up initial state
       // @TODO: Fix infinite loop and enable this
-      // if(INITIAL_MESSAGES.length > 0) {
-      //   messageThread.setMessages(INITIAL_MESSAGES);
-      // }
-      appPrefs.setPromptSuggestions(CUSTOM_SUGGESTIONS);
+      if(messages.length > 0) {
+        const messagesToSet = messages.map(({ id, role, content, attachments, created_at }) => ({
+          id,
+          role: role as 'user' | 'assistant' | 'system',
+          content,
+          attachments: JSON.parse(attachments),
+          timestamp: new Date(created_at),
+        }))
+        messageThread.setMessages(messagesToSet);
+      } else {
+        appPrefs.setPromptSuggestions(CUSTOM_SUGGESTIONS);
+      }
   });
 </script>
 
