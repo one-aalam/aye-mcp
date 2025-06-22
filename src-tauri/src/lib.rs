@@ -10,12 +10,152 @@ fn greet(name: &str) -> String {
 pub fn run() {
     let db_url = "sqlite:aye_mcp.db";
     let migrations = vec![
+        // Migration 1: Create chat_threads table
         Migration {
             version: 1,
-            description: "create_initial_tables",
-            sql: "CREATE TABLE IF NOT EXISTS chat_message (id text PRIMARY KEY NOT NULL, role text NOT NULL, content text NOT NULL, attachments json[], created_at timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+            description: "create_chat_threads_table",
+            sql: r#"
+                    CREATE TABLE IF NOT EXISTS chat_threads (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        project_id TEXT,
+                        model_provider TEXT NOT NULL DEFAULT '',
+                        model_name TEXT NOT NULL DEFAULT '',
+                        system_prompt TEXT,
+                        tool_presets TEXT DEFAULT '[]', -- JSON array of tool IDs
+                        settings TEXT DEFAULT '{}', -- JSON object for additional settings
+                        message_count INTEGER DEFAULT 0,
+                        total_tokens INTEGER DEFAULT 0,
+                        is_archived BOOLEAN DEFAULT FALSE,
+                        is_pinned BOOLEAN DEFAULT FALSE,
+                        tags TEXT DEFAULT '[]', -- JSON array of tags,
+                        last_message_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+                    );
+                "#,
             kind: MigrationKind::Up,
-        }
+        },
+
+        // Migration 2: Create chat_messages table
+        Migration {
+            version: 2,
+            description: "create_chat_messages_table",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    thread_id TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+                    content TEXT NOT NULL,
+                    attachments TEXT DEFAULT '[]', -- JSON array of attachments
+                    thinking TEXT DEFAULT '{}', -- JSON object for thinking process
+                    tool_calls TEXT DEFAULT '[]', -- JSON array for tool calls
+                    metadata TEXT DEFAULT '{}', -- JSON object for additional metadata
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE
+                );
+            "#,
+            kind: MigrationKind::Up,
+        },
+
+        // Migration 3: Create projects table for future use
+        Migration {
+            version: 3,
+            description: "create_projects_table",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS projects (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    system_prompt TEXT,
+                    default_model_provider TEXT NOT NULL DEFAULT 'openai',
+                    default_model_name TEXT NOT NULL DEFAULT 'gpt-4',
+                    tool_presets TEXT DEFAULT '[]', -- JSON array of tool IDs
+                    settings TEXT DEFAULT '{}', -- JSON object
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    is_archived BOOLEAN DEFAULT FALSE
+                );
+            "#,
+            kind: MigrationKind::Up,
+        },
+
+        // Migration 4: Create indexes for better performance
+        Migration {
+            version: 4,
+            description: "create_performance_indexes",
+            sql: r#"
+                -- Indexes for chat_message table
+                CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_id ON chat_messages(thread_id);
+                CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at);
+                CREATE INDEX IF NOT EXISTS idx_chat_messages_role ON chat_messages(role);
+                
+                -- Indexes for chat_threads table
+                CREATE INDEX IF NOT EXISTS idx_chat_threads_created_at ON chat_threads(created_at);
+                CREATE INDEX IF NOT EXISTS idx_chat_threads_updated_at ON chat_threads(updated_at);
+                CREATE INDEX IF NOT EXISTS idx_chat_threads_project_id ON chat_threads(project_id);
+                CREATE INDEX IF NOT EXISTS idx_chat_threads_pinned ON chat_threads(is_pinned);
+
+                -- Index for projects
+                CREATE INDEX IF NOT EXISTS idx_projects_created_at ON projects(created_at);
+                CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(is_archived);
+            "#,
+            kind: MigrationKind::Up,
+        },
+
+        // Migration 5: Create triggers for timestamp updates
+        Migration {
+            version: 5,
+            description: "create_timestamp_triggers",
+            sql: r#"
+                -- Trigger to update updated_at on chat_threads
+                CREATE TRIGGER IF NOT EXISTS update_chat_threads_timestamp
+                AFTER UPDATE ON chat_threads
+                BEGIN
+                    UPDATE chat_threads SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+                END;
+                
+                -- Trigger to update updated_at on chat_message
+                CREATE TRIGGER IF NOT EXISTS update_chat_message_timestamp
+                AFTER UPDATE ON chat_messages
+                BEGIN
+                    UPDATE chat_messages SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+                END;
+                
+                -- Trigger to update thread metadata when messages are added/updated
+                CREATE TRIGGER IF NOT EXISTS update_thread_on_message_insert
+                AFTER INSERT ON chat_message
+                BEGIN
+                    UPDATE chat_threads 
+                    SET 
+                        message_count = message_count + 1,
+                        last_message_at = NEW.created_at,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = NEW.thread_id;
+                END;
+                
+                -- Trigger to update thread metadata when messages are deleted
+                CREATE TRIGGER IF NOT EXISTS update_thread_on_message_delete
+                AFTER DELETE ON chat_message
+                BEGIN
+                    UPDATE chat_threads 
+                    SET 
+                        message_count = message_count - 1,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = OLD.thread_id;
+                END;
+                
+                -- Trigger to update projects timestamp
+                CREATE TRIGGER IF NOT EXISTS update_projects_timestamp
+                AFTER UPDATE ON projects
+                BEGIN
+                    UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+                END;
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
     
     tauri::Builder::default()
