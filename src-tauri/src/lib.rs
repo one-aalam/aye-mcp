@@ -138,7 +138,7 @@ pub fn run() {
                 
                 -- Trigger to update thread metadata when messages are deleted
                 CREATE TRIGGER IF NOT EXISTS update_thread_on_message_delete
-                AFTER DELETE ON chat_message
+                AFTER DELETE ON chat_messages
                 BEGIN
                     UPDATE chat_threads 
                     SET 
