@@ -156,6 +156,46 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+
+        // Migration 6: Create default thread for existing messages
+        Migration {
+            version: 6,
+            description: "create_default_thread_for_existing_messages",
+            sql: r#"
+                INSERT OR IGNORE INTO chat_threads (
+                    id, 
+                    title, 
+                    description,
+                    project_id,
+                    model_provider,
+                    model_name,
+                    system_prompt,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    'default_thread',
+                    'Default Conversation',
+                    'Auto-created thread for existing messages',
+                    'default_project',    
+                    'openai',
+                    'gpt-4',
+                    '',
+                    datetime('now'),
+                    datetime('now')
+                );
+                
+                -- Update message count for default thread
+                UPDATE chat_threads 
+                SET message_count = (
+                    SELECT COUNT(*) FROM chat_messages WHERE thread_id = 'default_thread'
+                ),
+                last_message_at = (
+                    SELECT MAX(created_at) FROM chat_messages WHERE thread_id = 'default_thread'
+                )
+                WHERE id = 'default_thread';
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
     
     tauri::Builder::default()
