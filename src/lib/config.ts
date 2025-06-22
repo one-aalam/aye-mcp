@@ -102,3 +102,7 @@ export const DEFAULT_PROMPT_SUGGESTIONS: PromptSuggestion[] = [
       category: 'Analysis',
     },
 ];
+
+
+// Very important App config (Don't change this)
+export const DB_PATH = 'aye_mcp.db';

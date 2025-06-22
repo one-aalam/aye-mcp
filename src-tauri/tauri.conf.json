@@ -31,5 +31,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "sql": {
+      "preload": ["sqlite:aye_mcp.db"]
+    }
   }
 }
