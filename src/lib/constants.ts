@@ -1,5 +1,5 @@
 import type { ChatMessage, PromptSuggestion } from "@/types";
-import { defaultPromptSuggestions } from ".";
+import { DEFAULT_PROMPT_SUGGESTIONS } from "./config";
 
   // Sample initial messages
 export const INITIAL_MESSAGES: ChatMessage[] = [
@@ -67,7 +67,7 @@ Would you like me to dive deeper into any specific aspect?`,
 ];
 
 export const CUSTOM_SUGGESTIONS: PromptSuggestion[] = [
-    ...defaultPromptSuggestions,
+    ...DEFAULT_PROMPT_SUGGESTIONS,
     {
       id: 'custom-1',
       text: 'Show me advanced chat features',
