@@ -1,26 +1,34 @@
 export interface ChatMessage {
   id: string;
-  content: string;
+  thread_id: string;
   role: 'user' | 'assistant' | 'system';
-  timestamp: Date;
-  attachments?: ChatAttachment[];
+  content: string;
+  attachments: ChatAttachment[];
   thinking?: ThinkingProcess;
-  toolCalls?: ToolCall[];
+  tool_calls?: ToolCall[];
   metadata?: Record<string, unknown>;
-  threadId: string;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface ChatThread {
   id: string;
   title: string;
   description?: string;
+  project_id?: string;
+  model_provider?: string;
+  model_name?: string;
+  system_prompt?: string;
+  tool_presets?: string[]; // JSON array stored as string in DB
+  settings?: Record<string, unknown>; // JSON object stored as string in DB
+  message_count: number;
+  total_tokens: number;
+  is_archived: boolean;
+  is_pinned: boolean;
   tags: string[]; // JSON array stored as string in DB
-  lastMessageAt?: string; // ISO timestamp
-  isArchived: boolean;
-  isPinned: boolean;
-  messageCount: number;
-  createdAt: string; // ISO timestamp
-  updatedAt: string; // ISO timestamp
+  last_message_at?: string; // ISO timestamp
+  created_at: Date; // ISO timestamp
+  updated_at: Date; // ISO timestamp
 }
 
 export interface ChatAttachment {
@@ -125,21 +133,4 @@ export interface PromptSuggestion {
   text: string;
   icon?: string;
   category?: string;
-}
-
-// Event types
-export interface ChatEvents {
-  'message:send': { message: Omit<ChatMessage, 'id' | 'timestamp'> };
-  'message:edit': { id: string; content: string };
-  'message:delete': { id: string };
-  'message:copy': { id: string };
-  'attachment:upload': { files: FileList };
-  'attachment:remove': { attachmentId: string };
-  'tool:cancel': { toolCallId: string };
-  'voice:start': void;
-  'voice:stop': void;
-  'voice:transcript': { transcript: string };
-  'thinking:toggle': { messageId: string };
-  'prompt:select': { suggestion: PromptSuggestion };
-  'theme:toggle': void;
 }

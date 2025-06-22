@@ -1,4 +1,6 @@
-import type { ChatMessage } from './types/index.js';
+import { nanoid } from 'nanoid';
+import type { ChatMessage, ChatThread } from './types/index.js';
+import { DEFAULT_THREAD_ID } from './config.js';
 
 // Main components
 export { default as ChatContainer } from './components/chat/chat-container.svelte';
@@ -36,7 +38,6 @@ export type {
   ChatTheme,
   ChatConfig,
   PromptSuggestion,
-  ChatEvents,
 } from './types/index.js';
 
 // Utilities
@@ -58,14 +59,60 @@ export {
   isScrolledToBottom,
 } from './utils';
 
-export function createChatMessage(
+export function createUserChatMessage(
   content: string,
-  role: 'user' | 'assistant' | 'system' = 'user',
-  options?: Partial<Omit<ChatMessage, 'id' | 'content' | 'role' | 'timestamp'>>
-): Omit<ChatMessage, 'id' | 'timestamp'> {
+  options?: Partial<Omit<ChatMessage, 'id' | 'content' | 'role' | 'thinking' | 'tool_calls' |  'created_at' | 'updated_at'>>
+): ChatMessage {
   return {
+    id: nanoid(),
+    role: 'user',
     content,
-    role,
+    thread_id: options?.thread_id || DEFAULT_THREAD_ID,
+    attachments: options?.attachments || [],
+    thinking: undefined,
+    tool_calls: [],
+    metadata: options?.metadata || {},
+    created_at: new Date(),
+    updated_at: new Date(),
+  };
+}
+
+export function createAssistantChatMessage(
+  content: string,
+  options?: Partial<Omit<ChatMessage, 'id' | 'content' | 'role' | 'attachments' |  'created_at' | 'updated_at'>>
+): ChatMessage {
+  return {
+    id: nanoid(),
+    role: 'assistant',
+    content,
+    thread_id: options?.thread_id || DEFAULT_THREAD_ID,
+    attachments: [],
+    thinking: options?.thinking || undefined,
+    tool_calls: options?.tool_calls || [],
+    metadata: options?.metadata || {},
+    created_at: new Date(),
+    updated_at: new Date(),
+  };
+}
+
+export function createChatThread(
+  title: string,
+  description?: string,
+  options?: Partial<Omit<ChatThread, 'id' | 'created_at' | 'updated_at' | 'message_count' | 'total_tokens' | 'is_archived' | 'is_pinned' | 'tags' | 'last_message_at'>>
+): ChatThread {
+  return {
+    id: nanoid(),
+    title,
+    description,
+    message_count: 0,
+    total_tokens: 0,
+    is_archived: false,
+    is_pinned: false,
+    tags: [],
+    last_message_at: undefined,
+    created_at: new Date(),
+    updated_at: new Date(),
     ...options,
   };
 }
+  

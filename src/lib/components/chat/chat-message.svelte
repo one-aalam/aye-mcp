@@ -111,10 +111,10 @@
         {#if showTimestamp}
           <time 
             class="text-xs text-muted-foreground"
-            datetime={message.timestamp.toISOString()}
-            title={formatDate(message.timestamp)}
+            datetime={message.created_at.toISOString()}
+            title={formatDate(message.created_at)}
           >
-            {formatTime(message.timestamp)}
+            {formatTime(message.created_at)}
           </time>
         {/if}
       </div>
@@ -171,9 +171,9 @@
     {/if}
 
     <!-- Tool Calls -->
-    {#if message.toolCalls && message.toolCalls.length > 0}
+    {#if message.tool_calls && message.tool_calls.length > 0}
       <ToolCallList 
-        toolCalls={message.toolCalls}
+        toolCalls={message.tool_calls}
         onCancel={(eventData) => handleToolCancel(eventData.toolCallId)}
       />
     {/if}

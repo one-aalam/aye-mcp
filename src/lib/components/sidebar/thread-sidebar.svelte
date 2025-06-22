@@ -225,7 +225,7 @@
                 <!-- Thread Content -->
                 <div class="flex items-start gap-3">
                   <!-- Pin Indicator -->
-                  {#if thread.isPinned}
+                  {#if thread.is_pinned}
                     <Pin class="w-3 h-3 text-primary mt-1 flex-shrink-0" />
                   {/if}
   
@@ -240,9 +240,9 @@
   
                     <!-- Metadata -->
                     <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{thread.messageCount} messages</span>
+                      <span>{thread.message_count} messages</span>
                       <span>•</span>
-                      <span>{formatThreadDate(thread.updatedAt)}</span>
+                      <span>{formatThreadDate(thread.updated_at.toISOString())}</span>
                     </div>
   
                     <!-- Tags -->
@@ -337,7 +337,7 @@
                         closeThreadMenu();
                       }}
                     >
-                      {#if thread.isPinned}
+                      {#if thread.is_pinned}
                         <PinOff class="w-4 h-4" />
                         Unpin
                       {:else}

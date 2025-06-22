@@ -106,3 +106,8 @@ export const DEFAULT_PROMPT_SUGGESTIONS: PromptSuggestion[] = [
 
 // Very important App config (Don't change this)
 export const DB_PATH = 'aye_mcp.db';
+
+export const DEFAULT_THREAD_ID = 'default_thread';
+export const DEFAULT_THREAD_TITLE = 'Chat';
+export const DEFAULT_THREAD_DESCRIPTION = 'Default Thread Description';
+export const DEFAULT_THREAD_TAGS = ['default', 'personal'];
