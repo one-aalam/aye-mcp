@@ -79,6 +79,80 @@ export interface VoiceInputState {
   error?: string;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  system_prompt?: string;
+  default_model_provider: string;
+  default_model_name: string;
+  tool_presets: string[]; // JSON array stored as string in DB
+  settings: Record<string, unknown>; // JSON object stored as string in DB
+  created_at: string; // ISO timestamp
+  updated_at: string; // ISO timestamp
+  is_archived: boolean;
+}
+
+export interface CreateThreadRequest {
+  title: string;
+  description?: string;
+  project_id?: string;
+  model_provider?: string;
+  model_name?: string;
+  system_prompt?: string;
+  tool_presets?: string[];
+  settings?: Record<string, unknown>;
+  tags?: string[];
+}
+
+export interface UpdateThreadRequest {
+  title?: string;
+  description?: string;
+  project_id?: string;
+  model_provider?: string;
+  model_name?: string;
+  system_prompt?: string;
+  tool_presets?: string[];
+  settings?: Record<string, unknown>;
+  is_archived?: boolean;
+  is_pinned?: boolean;
+  tags?: string[];
+}
+
+export interface CreateMessageRequest {
+  thread_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  attachments?: any[];
+  thinking?: any;
+  tool_calls?: any[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateMessageRequest {
+  content?: string;
+  attachments?: any[];
+  thinking?: any;
+  tool_calls?: any[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ThreadListOptions {
+  limit?: number;
+  offset?: number;
+  project_id?: string;
+  include_archived?: boolean;
+  search?: string;
+  sort_by?: 'created_at' | 'updated_at' | 'last_message_at' | 'title';
+  sort_order?: 'asc' | 'desc';
+}
+
+export interface MessageListOptions {
+  limit?: number;
+  offset?: number;
+  sort_order?: 'asc' | 'desc';
+}
+
 export interface ChatTheme {
   colors: {
     primary: string;

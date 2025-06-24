@@ -103,11 +103,19 @@ export const DEFAULT_PROMPT_SUGGESTIONS: PromptSuggestion[] = [
     },
 ];
 
+export const MODEL = 'llama3.1:8b-instruct-q4_K_M'; // deepseek-r1:latest, qwen3:latest, llama3.1:8b-instruct-q4_K_M
+export const MODEL_PROVIDER = 'ollama';
 
 // Very important App config (Don't change this)
 export const DB_PATH = 'aye_mcp.db';
+export const THREADS_SELECTED_KEY = 'aye_mcp_current_thread_id';
 
 export const DEFAULT_THREAD_ID = 'default_thread';
 export const DEFAULT_THREAD_TITLE = 'Chat';
 export const DEFAULT_THREAD_DESCRIPTION = 'Default Thread Description';
 export const DEFAULT_THREAD_TAGS = ['default', 'personal'];
+
+export const SYSTEM_PROMPT = `You are a helpful assistant, capable of using tools to answer user queries. When you are asked a question, you should first think about what tools you have available to you, and then use them to answer the question. When responding, after using a tool, don't include the tool output in your response, or tell the user that you have used a tool.`;
+export const genPromptWithSystemPrompt = (userMessage: string) => {
+    return `${SYSTEM_PROMPT}\n\nQuestion: ${userMessage}`;
+};

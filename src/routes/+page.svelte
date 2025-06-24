@@ -1,16 +1,32 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import ollama from "ollama/browser";
+  import type { ChatAttachment, ChatThread } from "@/types";
+  import { THREADS_SELECTED_KEY, DEFAULT_THREAD_ID, genPromptWithSystemPrompt, MODEL, MODEL_PROVIDER, SYSTEM_PROMPT } from "@/config";
   import ChatContainer from "@/components/chat/chat-container.svelte";
   import ThreadSidebar from "@/components/sidebar/thread-sidebar.svelte";
-  import { cn, createUserChatMessage, createAssistantChatMessage } from "../lib";
-  import { addChatMessage, getChatMessages } from "@/db/chat_message";
+  import { cn, createUserChatMessage, createAssistantChatMessage, createChatThread } from "../lib";
   import { appPrefs, messageThread } from "../lib/stores/index.js";
-  import type { ChatAttachment, ChatMessage } from "@/types";
   import { CUSTOM_SUGGESTIONS } from "../lib/constants";
+  import { createMessage as persistMessage, getMessagesByThread } from "@/db/chat_message";
+  import { createThread, deleteThread, getThreads, pinThread, archiveThread } from "@/db/chat_thread";
+  import { get_current_weather } from "../lib/tools/impl";
+  import { get_current_weather as get_current_weather_def } from "../lib/tools/defs";
+
+  const availableTools = {
+    get_current_weather
+  };
 
   let sidebarWidth = $state(320);
   let sidebarCollapsed = $state(false);
   let isResizing = $state(false);
+  let messageHistory = $state<{ role: string; content: string }[]>([]);
+  let pendingThreadCreate = $state(false);
+
+  let threads = $state<ChatThread[]>([]);
+  let currentThreadId = $state<string | null>(null);
+
+
   // Sidebar resizing
   function handleMouseDown(event: MouseEvent) {
     isResizing = true;
@@ -36,11 +52,6 @@
     document.body.style.userSelect = '';
   }
 
-  function toggleSidebar() {
-    sidebarCollapsed = !sidebarCollapsed;
-  }
-
-
   appPrefs.updateConfig({
     enableVoiceInput: true,
     enableFileUpload: true,
@@ -57,36 +68,113 @@
   })
   // Event handlers
   async function handleMessageSend(data: { content: string; attachments: ChatAttachment[] | undefined; }): Promise<void> {
-    console.log('Message sent:', data);
-    
-    // Simulate typing indicator
-    const message = createUserChatMessage(data.content, {
-      attachments: data.attachments || [],
+    // Create a complete user chat message
+    const userMessage = createUserChatMessage(data.content, {
+        attachments: data.attachments || [],
+        thread_id: currentThreadId!,
     });
-    
-    messageThread.addMessage(message);
-    await addChatMessage(message);
-    messageThread.setTyping(true);
-    
-    // Simulate AI response after delay
-    setTimeout(async () => {
-      const aiResponse = createAssistantChatMessage('I received your message! This is a simulated AI response.');
-      
-      messageThread.addMessage(aiResponse);
-      await addChatMessage(aiResponse);
-      messageThread.setTyping(false);
-    }, 2000);
-  }
 
-  function handlePromptSelect(event: CustomEvent) {
-    console.log('Prompt selected:', event.detail);
-    
-    // Auto-send the selected suggestion
-    const message = createUserChatMessage(event.detail.suggestion.text, {
-      attachments: [],
+    messageThread.addMessage(userMessage);
+    messageHistory.push({
+      role: 'user',
+      content: genPromptWithSystemPrompt(data.content),
     });
-    // Trigger AI response
-    handleMessageSend({ content: message.content, attachments: message.attachments });
+    if(pendingThreadCreate) {
+      pendingThreadCreate = false;
+      const chatThread = createChatThread(`Conversation ${threads.length + 1}`, data.content, {
+        model_provider: MODEL_PROVIDER,
+        model_name: MODEL,
+        system_prompt: SYSTEM_PROMPT
+      });
+      await createThread(chatThread);
+      threads = await getThreads();
+      currentThreadId = chatThread.id;
+    }
+    // Persist to DB
+    userMessage.thread_id = currentThreadId!;
+    await persistMessage(userMessage);
+    // Set typing indicator
+    messageThread.setTyping(true);
+    // Call LLM
+    const { message: llmResponse, ...rest } = await ollama.chat({
+      model: MODEL,
+      tools: [
+        get_current_weather_def
+      ],
+      messages: messageHistory,
+    });
+    messageThread.setTyping(false);
+
+    messageHistory.push({
+      role: 'assistant',
+      content: llmResponse.content,
+    });
+    
+    if(llmResponse.content.trim() !== '') {
+      // Create a complete assistant chat message
+      const aiResponse = createAssistantChatMessage(llmResponse.content, {
+        thread_id: currentThreadId!,
+        metadata: rest,
+      });
+      // Persist to store
+      messageThread.addMessage(aiResponse);
+      messageHistory.push({
+        role: 'assistant',
+        content: llmResponse.content,
+      });
+      // Persist to DB
+      await persistMessage(aiResponse);
+    }
+    // If tool calls in the response
+    if(llmResponse.tool_calls && llmResponse.tool_calls.length > 0) {
+
+      // Process tool calls from the response
+      messageThread.setTyping(true);
+      for (const tool of llmResponse.tool_calls) {
+        // @ts-ignore
+        const functionToCall = availableTools[tool.function.name];
+        if (functionToCall) {
+          let output = await functionToCall(tool.function.arguments);
+          // Add the function response to messages for the model to use
+          messageHistory.push({
+            role: 'tool',
+            content: output.toString(),
+          });
+        } else {
+          console.log('Function', tool.function.name, 'not found');
+          messageHistory.push({
+            role: 'tool',
+            content: 'Function not found',
+          });
+        }
+      }
+      messageThread.setTyping(false);
+      // Send to LLM
+      messageThread.setTyping(true);
+      const { message: finalLLMResponse, ...rest } = await ollama.chat({
+          model: MODEL,
+          messages: messageHistory
+        });
+      messageThread.setTyping(false);
+
+      const finalResponseMessage = createAssistantChatMessage(finalLLMResponse.content, {
+          thread_id: currentThreadId!,
+          metadata: rest,
+      });
+
+      if(finalLLMResponse.content.trim() !== '') {
+        messageHistory.push({
+          role: 'assistant',
+          content: finalLLMResponse.content,
+        });
+        // Persist to store
+        messageThread.addMessage(finalResponseMessage);
+        // Persist to DB
+        await persistMessage(finalResponseMessage);
+      }
+    } else {
+      console.log('No tool calls returned from model');
+    }
   }
 
   function handleMessageCopy(event: CustomEvent) {
@@ -146,17 +234,50 @@
     // Theme is automatically handled by the component
   }
 
+  async function handleCreateThread() {
+    // Reset state, don't mount, or transition to another page
+    messageThread.setMessages([]);
+    messageHistory = [];
+    currentThreadId = null;
+    pendingThreadCreate = true;
+  }
+
+  async function handleSelectThread(threadId: string) {
+    currentThreadId = threadId;
+    messageThread.setMessages([]);
+    messageHistory = [];
+    const messages = await getMessagesByThread(threadId);
+    if(messages.length > 0) {
+      messageHistory = messages.map((message) => {
+        return {
+          role: message.role,
+          content: message.content,
+        };
+      });
+      messageThread.setMessages(messages);
+    } else {
+      appPrefs.setPromptSuggestions(CUSTOM_SUGGESTIONS);
+    }
+  }
+
 
     onMount(async () => {
-      const messages = await getChatMessages();
-      // Set up initial state
-      // @TODO: Fix infinite loop and enable this
-      if(messages.length > 0) {
-        messageThread.setMessages(messages);
+      threads = await getThreads();
+      if(threads.length) {
+        // first start
+        await handleSelectThread(localStorage.getItem(THREADS_SELECTED_KEY) || DEFAULT_THREAD_ID);
       } else {
+        // first start
+        pendingThreadCreate = true;
         appPrefs.setPromptSuggestions(CUSTOM_SUGGESTIONS);
       }
-  });
+    });
+
+    $effect(() => {
+      if(currentThreadId) {
+        localStorage.setItem(THREADS_SELECTED_KEY, currentThreadId);
+      }
+    });
 </script>
 
 <main class="h-screen bg-background flex text-foreground overflow-hidden">
@@ -173,49 +294,24 @@
       !appPrefs.sidebarOpen && 'opacity-0'
     )}>
       <ThreadSidebar
-        threads={[{
-          id: '1',
-          title: 'Conversation 1',
-          tags: ['tag1', 'tag2'],
-          is_archived: false,
-          is_pinned: false,
-          message_count: 9,
-          created_at: new Date(),
-          updated_at: new Date(),
-          last_message_at: '2025-06-22T16:55:00.000Z',
-          total_tokens: 0,
-        }, {
-          id: '2',
-          title: 'Conversation 2',
-          tags: ['tag1', 'tag2'],
-          is_archived: false,
-          is_pinned: true,
-          message_count: 12,
-          created_at: new Date(),
-          updated_at: new Date(),
-          last_message_at: '2025-06-22T16:55:00.000Z',
-          total_tokens: 0,
-        }, {
-          id: '3',
-          title: 'Conversation 3',
-          tags: ['tag1', 'tag2'],
-          is_archived: false,
-          is_pinned: false,
-          message_count: 19,
-          created_at: new Date(),
-          updated_at: new Date(),
-          last_message_at: '2025-06-22T16:55:00.000Z',
-          total_tokens: 0,
-        }]}
-        currentThreadId={'1'}
+        threads={threads}
+        currentThreadId={currentThreadId}
         isLoading={false}
         error={null}
-        onCreate={() => console.log('Create thread')}
-        onSelect={(threadId) => console.log(`Select thread: ${threadId}`)}
-        onDelete={(threadId) => console.log(`Delete thread: ${threadId}`)}
-        onPin={(threadId) => console.log(`Pin thread: ${threadId}`)}
-        onArchive={(threadId) => console.log(`Archive thread: ${threadId}`)}
-        onDuplicate={(threadId) => console.log(`Duplicate thread: ${threadId}`)}
+        onCreate={handleCreateThread}
+        onSelect={handleSelectThread}
+        onDelete={async (threadId) => {
+          await deleteThread(threadId);
+          threads = await getThreads();
+        }}
+        onPin={async (threadId) => {
+          await pinThread(threadId);
+          threads = await getThreads();
+        }}
+        onArchive={async (threadId) => {
+          await archiveThread(threadId);
+          threads = await getThreads();
+        }}
         class="h-full"
       />
     </div>
@@ -251,7 +347,7 @@
     onVoiceStart={handleVoiceStart}
     onVoiceStop={handleVoiceStop}
     onVoiceResult={({ transcript }) => handleVoiceResult({ detail: { transcript } } as CustomEvent)}
-    onPromptSelect={({ suggestion }) => handlePromptSelect({ detail: { suggestion } } as CustomEvent)}
+    onPromptSelect={({ suggestion }) => handleMessageSend({ content: suggestion.text, attachments: [] })}
     onThemeToggle={handleThemeToggle}
   />
 </div>

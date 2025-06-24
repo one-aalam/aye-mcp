@@ -103,7 +103,7 @@ export function createChatThread(
   return {
     id: nanoid(),
     title,
-    description,
+    description: description || '',
     message_count: 0,
     total_tokens: 0,
     is_archived: false,
