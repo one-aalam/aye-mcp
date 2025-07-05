@@ -125,8 +125,8 @@
       </button>
         <h1 class="text-lg font-semibold">Chat</h1>
         <div class="flex items-center gap-2 text-sm text-muted-foreground">
-          <span>{messageThread.messages.length} messages</span>
-          {#if messageThread.isTyping}
+          <span>{messageThread?.messages?.length} messages</span>
+          {#if messageThread?.isTyping}
             <span>• typing...</span>
           {/if}
         </div>
@@ -192,7 +192,7 @@
       />
       
       <!-- Typing indicator -->
-      {#if messageThread.isTyping}
+      {#if messageThread?.isTyping}
         <div class="p-4">
           <div class="flex gap-3">
             <div class="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">

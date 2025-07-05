@@ -1,14 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import ollama from "ollama/browser";
-  import type { ChatAttachment, ChatThread } from "@/types";
-  import { THREADS_SELECTED_KEY, DEFAULT_THREAD_ID, genPromptWithSystemPrompt, MODEL, MODEL_PROVIDER, SYSTEM_PROMPT, MCP_SERVERS, prepareMCPToolName, parseMCPToolName } from "@/config";
+  import type { ChatAttachment } from "@/types";
+  import { MODEL, MCP_SERVERS, prepareMCPToolName, parseMCPToolName } from "@/config";
   import ChatContainer from "@/components/chat/chat-container.svelte";
-  import ThreadSidebar from "@/components/sidebar/thread-sidebar.svelte";
-  import { cn, createUserChatMessage, createAssistantChatMessage, createChatThread } from "../lib";
-  import { CUSTOM_SUGGESTIONS } from "../lib/constants";
-  import { createMessage as persistMessage, getMessagesByThread } from "@/db/chat_message";
-  import { createThread, deleteThread, getThreads, pinThread, archiveThread } from "@/db/chat_thread";
   import { get_current_weather } from "../lib/tools/impl";
   import { get_current_weather as get_current_weather_def } from "../lib/tools/defs";
   import { mcpManager } from "@/mcp/mcp-manager";
@@ -31,41 +26,6 @@
     get_current_weather
   };
   let availableMCPTools = $state<MCPTool[]>([]);
-
-  let sidebarWidth = $state(320);
-  let sidebarCollapsed = $state(false);
-  let isResizing = $state(false);
-  let messageHistory = $state<{ role: string; content: string }[]>([]);
-  let pendingThreadCreate = $state(false);
-
-  let threads = $state<ChatThread[]>([]);
-  let currentThreadId = $state<string | null>(null);
-
-
-  // Sidebar resizing
-  function handleMouseDown(event: MouseEvent) {
-    isResizing = true;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    event.preventDefault();
-  }
-
-  function handleMouseMove(event: MouseEvent) {
-    if (!isResizing) return;
-    
-    const newWidth = Math.max(240, Math.min(500, event.clientX));
-    sidebarWidth = newWidth;
-  }
-
-  function handleMouseUp() {
-    isResizing = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  }
 
   appPrefs.updateConfig({
     enableVoiceInput: true,
@@ -115,32 +75,7 @@
 
   // Event handlers
   async function handleMessageSend(data: { content: string; attachments: ChatAttachment[] | undefined; }, selectedTools: string[] = []): Promise<void> {
-    // Create a complete user chat message
-    const userMessage = createUserChatMessage(data.content, {
-        attachments: data.attachments || [],
-        thread_id: currentThreadId!,
-    });
-
-    messageThread.addMessage(userMessage);
-    messageHistory.push({
-      role: 'user',
-      content: genPromptWithSystemPrompt(data.content),
-    });
-    if(pendingThreadCreate) {
-      pendingThreadCreate = false;
-      const chatThread = createChatThread(`Conversation ${threads.length + 1}`, data.content, {
-        model_provider: MODEL_PROVIDER,
-        model_name: MODEL,
-        system_prompt: SYSTEM_PROMPT
-      });
-      await createThread(chatThread);
-      threads = await getThreads();
-      currentThreadId = chatThread.id;
-    }
-    // Persist to DB
-    userMessage.thread_id = currentThreadId!;
-    await persistMessage(userMessage);
-    // Set typing indicator
+    await messageThread.addUserMessage(data.content, data.attachments);
     messageThread.setTyping(true);
     // Call LLM
     // Prepare tools for LLM - combine built-in and MCP tools
@@ -155,30 +90,11 @@
     const { message: llmResponse, ...rest } = await ollama.chat({
       model: MODEL,
       tools: allTools,
-      messages: messageHistory,
+      messages: messageThread.messageHistory,
     });
     messageThread.setTyping(false);
 
-    messageHistory.push({
-      role: 'assistant',
-      content: llmResponse.content,
-    });
-    
-    if(llmResponse.content.trim() !== '') {
-      // Create a complete assistant chat message
-      const aiResponse = createAssistantChatMessage(llmResponse.content, {
-        thread_id: currentThreadId!,
-        metadata: rest,
-      });
-      // Persist to store
-      messageThread.addMessage(aiResponse);
-      messageHistory.push({
-        role: 'assistant',
-        content: llmResponse.content,
-      });
-      // Persist to DB
-      await persistMessage(aiResponse);
-    }
+    await messageThread.addAssistantMessage(llmResponse.content, rest);
     // If tool calls in the response
     if(llmResponse.tool_calls && llmResponse.tool_calls.length > 0) {
       // Process tool calls from the response
@@ -210,35 +126,19 @@
           toolOutput = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
         
-        messageHistory.push({
-          role: 'tool',
-          content: toolOutput!,
-        });
+        messageThread.addToolOutputToMessageHistory(toolOutput!);
       }
       messageThread.setTyping(false);
       // Send to LLM
       messageThread.setTyping(true);
       const { message: finalLLMResponse, ...rest } = await ollama.chat({
           model: MODEL,
-          messages: messageHistory
+          messages: messageThread.messageHistory
         });
       messageThread.setTyping(false);
 
-      const finalResponseMessage = createAssistantChatMessage(finalLLMResponse.content, {
-          thread_id: currentThreadId!,
-          metadata: rest,
-      });
+      await messageThread.addAssistantMessage(finalLLMResponse.content, rest);
 
-      if(finalLLMResponse.content.trim() !== '') {
-        messageHistory.push({
-          role: 'assistant',
-          content: finalLLMResponse.content,
-        });
-        // Persist to store
-        messageThread.addMessage(finalResponseMessage);
-        // Persist to DB
-        await persistMessage(finalResponseMessage);
-      }
     } else {
       console.log('No tool calls returned from model');
     }
@@ -301,44 +201,7 @@
     // Theme is automatically handled by the component
   }
 
-  async function handleCreateThread() {
-    // Reset state, don't mount, or transition to another page
-    messageThread.setMessages([]);
-    messageHistory = [];
-    currentThreadId = null;
-    pendingThreadCreate = true;
-  }
-
-  async function handleSelectThread(threadId: string) {
-    currentThreadId = threadId;
-    messageThread.setMessages([]);
-    messageHistory = [];
-    const messages = await getMessagesByThread(threadId);
-    if(messages.length > 0) {
-      messageHistory = messages.map((message) => {
-        return {
-          role: message.role,
-          content: message.content,
-        };
-      });
-      messageThread.setMessages(messages);
-    } else {
-      appPrefs.setPromptSuggestions(CUSTOM_SUGGESTIONS);
-    }
-  }
-
     onMount(async () => {
-      // Load threads
-      threads = await getThreads();
-      if(threads.length) {
-        // first start
-        await handleSelectThread(localStorage.getItem(THREADS_SELECTED_KEY) || DEFAULT_THREAD_ID);
-      } else {
-        // first start
-        pendingThreadCreate = true;
-        appPrefs.setPromptSuggestions(CUSTOM_SUGGESTIONS);
-      }
-
       // Load MCP servers and tools
       try {
         mcpManager.addEventListener((event) => {
@@ -370,12 +233,6 @@
     });
 
     $effect(() => {
-      if(currentThreadId) {
-        localStorage.setItem(THREADS_SELECTED_KEY, currentThreadId);
-      }
-    });
-
-    $effect(() => {
       if (isInitialized && initError === null) {
         loadAvailableMCPTools();
         // const interval = setInterval(loadAvailableMCPTools, MCP_SERVERS.TOOLS_REFRESH_INTERVAL); // Refresh every 30 seconds
@@ -383,59 +240,6 @@
       }
     });
 </script>
-
-<main class="h-screen bg-background flex text-foreground overflow-hidden">
-  <!-- Sidebar -->
-  <div 
-    class={cn(
-      'relative flex-shrink-0 transition-all duration-300 ease-in-out',
-      appPrefs.sidebarOpen ? '' : 'w-0'
-    )}
-    style:width={appPrefs.sidebarOpen ? `${sidebarWidth}px` : '0px'}
-  >
-    <div class={cn(
-      'h-full overflow-hidden',
-      !appPrefs.sidebarOpen && 'opacity-0'
-    )}>
-      <div>
-        <a href="/settings">Settings</a>
-      </div>
-      <ThreadSidebar
-        threads={threads}
-        currentThreadId={currentThreadId}
-        isLoading={false}
-        error={null}
-        onCreate={handleCreateThread}
-        onSelect={handleSelectThread}
-        onDelete={async (threadId) => {
-          await deleteThread(threadId);
-          threads = await getThreads();
-        }}
-        onPin={async (threadId) => {
-          await pinThread(threadId);
-          threads = await getThreads();
-        }}
-        onArchive={async (threadId) => {
-          await archiveThread(threadId);
-          threads = await getThreads();
-        }}
-        class="h-full"
-      />
-    </div>
-
-    <!-- Resize Handle -->
-    {#if !sidebarCollapsed}
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-      <div
-        class="absolute top-0 right-0 w-1 h-full cursor-col-resize bg-border hover:bg-primary/20 transition-colors"
-        onmousedown={handleMouseDown}
-        role="separator"
-        aria-label="Resize sidebar"
-        tabindex="0"
-      ></div>
-    {/if}
-  </div>
   <!-- Main Content -->
   <div class="flex-1 flex flex-col min-w-0">
     {#if mcpInitResult && (mcpInitResult.failed > 0 || mcpInitResult.total === 0)}
@@ -491,7 +295,6 @@
     onThemeToggle={handleThemeToggle}
   />
 </div>
-</main>
 
 <style>
 
