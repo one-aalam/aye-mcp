@@ -1,18 +1,23 @@
 <script lang="ts">
   import { cn, createFileAttachment, shouldConvertToAttachment } from '@/utils';
   import type { ChatAttachment, ChatConfig } from '@/types';
-  import { Send, Paperclip, Mic, MicOff, X } from '@lucide/svelte';
+  import { Send, Paperclip, Mic, MicOff, Wrench } from '@lucide/svelte';
   import VoiceInput from '@/components/voice/voice-input.svelte';
   import AttachmentPreview from '@/components/attchments/attachment-preview.svelte';
+  import ToolSelector from '@/components/input/tool-selector.svelte';
+  import type { MCPTool } from '@/types/mcp';
+  import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
 
   interface Props {
     placeholder?: string;
     disabled?: boolean;
     config?: ChatConfig;
     class?: string;
+    availableTools?: MCPTool[];
     onSend?: (data: {
       content: string,
       attachments: ChatAttachment[] | undefined,
+      selectedTools: string[]
     }) => void;
     onError?: (error: { message: string }) => void;
     onAttachmentAdd?: (attachment: ChatAttachment) => void;
@@ -27,6 +32,7 @@
     disabled = false,
     config = {},
     class: className = '',
+    availableTools,
     onSend,
     onError,
     onAttachmentAdd,
@@ -44,6 +50,10 @@
   let isDragging = $state(false);
   let isComposing = $state(false);
   let showVoiceInput = $state(false);
+  // tools
+  let selectedTools = $state<string[]>([]);
+  // let availableTools = $state<MCPTool[]>([]);
+  let showToolSelector = $state(false);
 
   const canSend = $derived(message.trim() || attachments.length > 0);
   const maxFileSize = config.maxFileSize || 10 * 1024 * 1024;
@@ -55,6 +65,7 @@
     const messageContent = message.trim();
     let finalMessage = messageContent;
     let finalAttachments = [...attachments];
+    const finalSelectedTools = [...selectedTools];
 
     // Convert long text to attachment if needed
     if (shouldConvertToAttachment(messageContent)) {
@@ -74,11 +85,13 @@
     onSend?.({
       content: finalMessage,
       attachments: finalAttachments.length > 0 ? finalAttachments : undefined,
+      selectedTools: finalSelectedTools,
     });
 
     // Reset form
     message = '';
     attachments = [];
+    selectedTools = [];
     adjustTextareaHeight();
   }
 
@@ -271,6 +284,36 @@
           class="hidden"
           onchange={(e) => handleFileSelect(e.target?.files)}
         />
+      {/if}
+
+      <!-- Tool selector button -->
+      {#if config.enableToolCalls}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger class={cn(
+            "flex-shrink-0 p-2 rounded-md transition-colors",
+            showToolSelector 
+              ? "bg-primary text-primary-foreground" 
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
+          )}
+          aria-label="Select tools"
+          title="Select tools"
+          {disabled}
+          ><Wrench class="w-4 h-4" /></DropdownMenu.Trigger>
+          <DropdownMenu.Content class="absolute bottom-6 left-2">
+            <ToolSelector
+              tools={availableTools}
+              selectedTools={selectedTools}
+              onToggleTool={(toolName) => {
+                if (selectedTools.includes(toolName)) {
+                  selectedTools = selectedTools.filter(name => name !== toolName);
+                } else {
+                  selectedTools = [...selectedTools, toolName];
+                }
+              }}
+              onClose={() => showToolSelector = false}
+            />
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
       {/if}
   
       <!-- Voice input button -->

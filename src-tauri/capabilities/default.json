@@ -10,6 +10,9 @@
     "opener:default",
     "sql:default",
     "sql:allow-execute",
-    "sql:allow-select"
+    "sql:allow-select",
+    "fs:default",
+    "fs:allow-app-read",
+    "fs:allow-app-write"
   ]
 }

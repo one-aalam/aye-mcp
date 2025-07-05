@@ -103,7 +103,7 @@ export const DEFAULT_PROMPT_SUGGESTIONS: PromptSuggestion[] = [
     },
 ];
 
-export const MODEL = 'llama3.1:8b-instruct-q4_K_M'; // deepseek-r1:latest, qwen3:latest, llama3.1:8b-instruct-q4_K_M
+export const MODEL = 'qwen3:latest'; // deepseek-r1:latest, qwen3:latest, llama3.1:8b-instruct-q4_K_M
 export const MODEL_PROVIDER = 'ollama';
 
 // Very important App config (Don't change this)
@@ -119,3 +119,22 @@ export const SYSTEM_PROMPT = `You are a helpful assistant, capable of using tool
 export const genPromptWithSystemPrompt = (userMessage: string) => {
     return `${SYSTEM_PROMPT}\n\nQuestion: ${userMessage}`;
 };
+
+export const MCP_SERVERS = {
+    STARTUP_WAIT_TIME: 1000 * 3,
+    TOOLS_REFRESH_INTERVAL: 1000 * 30,
+    TOOLS_PREFIX: 'mcp_'
+};
+
+export const prepareMCPToolName = (serverId: string, toolName: string) => {
+  return `${MCP_SERVERS.TOOLS_PREFIX}${serverId}_${toolName}`;
+};
+
+export const parseMCPToolName = (forToolName: string) => {
+  if(!forToolName.startsWith(MCP_SERVERS.TOOLS_PREFIX)) {
+    return { serverId: null, toolName: forToolName };
+  }
+  const [, serverType, serverId, ...toolNameParts] = forToolName.split('_');
+  return { serverId: `${serverType}_${serverId}`, toolName: toolNameParts.join('_') };
+}
+

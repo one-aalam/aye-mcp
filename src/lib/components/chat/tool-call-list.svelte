@@ -3,7 +3,6 @@
   import type { ToolCall } from '@/types';
   import { 
     Cog, 
-    Play, 
     CheckCircle, 
     XCircle, 
     Square, 

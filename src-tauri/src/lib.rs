@@ -1,3 +1,4 @@
+mod mcp;
 use tauri_plugin_sql::{Migration, MigrationKind};
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
@@ -37,7 +38,6 @@ pub fn run() {
                 "#,
             kind: MigrationKind::Up,
         },
-
         // Migration 2: Create chat_messages table
         Migration {
             version: 2,
@@ -59,7 +59,6 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
-
         // Migration 3: Create projects table for future use
         Migration {
             version: 3,
@@ -81,7 +80,6 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
-
         // Migration 4: Create indexes for better performance
         Migration {
             version: 4,
@@ -104,7 +102,6 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
-
         // Migration 5: Create triggers for timestamp updates
         Migration {
             version: 5,
@@ -156,7 +153,6 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
-
         // Migration 6: Create default thread for existing messages
         Migration {
             version: 6,
@@ -196,12 +192,73 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+
+        Migration {
+            version: 7,
+            description: "create_mcp_servers_table",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS mcp_servers (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    endpoint TEXT NOT NULL,
+                    server_type TEXT NOT NULL DEFAULT 'stdio',
+                    config TEXT DEFAULT '{}',
+                    is_enabled BOOLEAN DEFAULT TRUE,
+                    status TEXT DEFAULT 'disconnected',
+                    last_connected_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+            "#,
+            kind: MigrationKind::Up,
+        },
+
+        Migration {
+            version: 8,
+            description: "create_mcp_tools_table",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS mcp_tools (
+                    id TEXT PRIMARY KEY,
+                    server_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    schema TEXT NOT NULL,
+                    is_enabled BOOLEAN DEFAULT TRUE,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_tools_server ON mcp_tools(server_id);
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
-    
+
     tauri::Builder::default()
-        .plugin(tauri_plugin_sql::Builder::default().add_migrations(db_url, migrations).build())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(
+            tauri_plugin_sql::Builder::default()
+                .add_migrations(db_url, migrations)
+                .build(),
+        )
+        .manage(mcp::init_mcp_manager())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            mcp::add_mcp_server,
+            mcp::remove_mcp_server,
+            mcp::call_mcp_tool,
+            mcp::get_mcp_server_status,
+            mcp::list_mcp_servers,
+            mcp::get_all_mcp_tools,
+        ])
+        .setup(|_app| {  
+            // Set up tracing for MCP SDK
+            tracing_subscriber::fmt::init();            
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

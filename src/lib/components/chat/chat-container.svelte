@@ -11,6 +11,7 @@
   import PromptSuggestions from '@/components/ui/prompt-suggestions.svelte';
   import TypingIndicator from '@/components/ui/typing-indicator.svelte';
   import ThemeToggle from '@/components/ui/theme-toggle.svelte';
+  import type { MCPTool } from '@/types/mcp.js';
 
   interface Props {
     initialMessages?: ChatMessage[];
@@ -19,6 +20,7 @@
     showHeader?: boolean;
     showPromptSuggestions?: boolean;
     class?: string;
+    availableTools?: MCPTool[];
     onThemeToggle?: () => void;
     onMessageSend?: (event: { content: string, attachments: ChatAttachment[] }) => void;
     onAttachmentAdd?: (event: { attachment: ChatAttachment }) => void;
@@ -41,6 +43,7 @@
     showHeader = true,
     showPromptSuggestions = true,
     class: className = '',
+    availableTools = [],
     onThemeToggle = () => {},
     onCopy = () => {},
     onEdit = () => {},
@@ -217,6 +220,7 @@
     <div class="p-4">
       <MessageInput 
         config={appPrefs.config}
+        availableTools={availableTools}
         onSend={(e) => {
           onMessageSend?.({ content: e.content, attachments: e.attachments || [] })
           setTimeout(scrollToBottomIfNeeded, 100);
