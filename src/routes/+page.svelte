@@ -8,13 +8,14 @@
   import { get_current_weather as get_current_weather_def } from "../lib/tools/defs";
   import { mcpManager } from "@/mcp/mcp-manager";
   import { mcpStartupManager, type StartupResult } from "@/mcp/startup-manager";
-  import type { MCPTool } from "@/types/mcp";
   import { toOllamaTool } from "@/tools/compat";
   import { getMessageThreadContext } from "@/stores/message-thread.svelte.js";
   import { getAppPrefsContext } from "@/stores/app-prefs.svelte.js";
+  import { getMCPToolContext } from "@/stores/mcp-tool.svelte.js";
 
   const messageThread = getMessageThreadContext();
   const appPrefs = getAppPrefsContext();
+  const mcpTool = getMCPToolContext();
 
 
   let isInitialized = $state(false);
@@ -25,7 +26,6 @@
   const availableLocalTools = {
     get_current_weather
   };
-  let availableMCPTools = $state<MCPTool[]>([]);
 
   appPrefs.updateConfig({
     enableVoiceInput: true,
@@ -42,44 +42,13 @@
     enableDelete: true,
   })
 
-  async function loadAvailableMCPTools() {
-    try {
-      const servers = await mcpManager.getAllTools();
-      console.log(servers)
-      const tools: MCPTool[] = [];
-      // for (const server of servers) {
-      //   if (server.is_enabled && server.status === 'connected' && server.tools) {
-      //     tools.push(...server.tools.filter(tool => tool.is_enabled).map(tool => ({
-      //       ...tool,
-      //       serverId: server.id,
-      //       serverName: server.name,
-      //       type: 'mcp'
-      //     })));
-      //   }
-      // }
-
-      servers.forEach(server => {
-        tools.push(...(server.tools.map(tool => ({
-          ...tool,
-          server_id: server.serverId,
-          serverName: server.serverName,
-          name: prepareMCPToolName(server.serverId, tool.name),
-        }))));
-      });
-      availableMCPTools = tools;
-      console.log(`Loaded ${tools.length} MCP tools from ${servers.length} servers`);
-    } catch (error) {
-      console.error('Failed to load MCP tools:', error);
-    }
-  }
-
   // Event handlers
   async function handleMessageSend(data: { content: string; attachments: ChatAttachment[] | undefined; }, selectedTools: string[] = []): Promise<void> {
     await messageThread.addUserMessage(data.content, data.attachments);
     messageThread.setTyping(true);
     // Call LLM
     // Prepare tools for LLM - combine built-in and MCP tools
-    const allTools = [get_current_weather_def, ...availableMCPTools.map(toOllamaTool)];
+    const allTools = [get_current_weather_def, ...mcpTool.tools.map(toOllamaTool)];
     // const allowedTools = selectedTools.length > 0 ? allTools.filter(tool => {
     //   const toolName = tool.function.name!.startsWith('mcp_') 
     //         ? tool.function.name!.split('_').slice(2).join('_') 
@@ -207,7 +176,7 @@
         mcpManager.addEventListener((event) => {
           switch (event.type) {
             case 'connected':
-              // console.log(`MCP server connected`);
+              console.log(`MCP server connected`, event);
               break;
             case 'disconnected':
               console.log(`MCP server disconnected`);
@@ -222,8 +191,8 @@
               break;
           }
         });
-        const mcpResult = await mcpStartupManager.initializeFromConfig();
-        mcpInitResult = mcpResult;
+        const initResult = await mcpStartupManager.initializeFromConfig();
+        mcpInitResult = initResult;
         isInitialized = true;
       } catch (error) {
         initError = error instanceof Error ? error.message : 'Unknown error';
@@ -234,9 +203,7 @@
 
     $effect(() => {
       if (isInitialized && initError === null) {
-        loadAvailableMCPTools();
-        // const interval = setInterval(loadAvailableMCPTools, MCP_SERVERS.TOOLS_REFRESH_INTERVAL); // Refresh every 30 seconds
-        // return () => clearInterval(interval);
+        mcpTool.loadTools();
       }
     });
 </script>
@@ -276,7 +243,7 @@
       {/if}
   <ChatContainer
     initialConfig={appPrefs.config}
-    availableTools={availableMCPTools}
+    availableTools={mcpTool.tools}
     height="100vh"
     showHeader={true}
     showPromptSuggestions={true}

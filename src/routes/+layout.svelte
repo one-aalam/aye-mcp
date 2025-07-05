@@ -1,6 +1,8 @@
 <script lang="ts">
+    import { goto } from '$app/navigation';
     import { getMessageThreadContext, setMessageThreadContext } from '@/stores/message-thread.svelte';
     import { setAppPrefsContext, getAppPrefsContext } from '@/stores/app-prefs.svelte';
+    import { setMCPToolContext } from '@/stores/mcp-tool.svelte';
     import { cn } from '../lib';
 	import '../app.css';
     import ThreadSidebar from '@/components/sidebar/thread-sidebar.svelte';
@@ -12,10 +14,10 @@
 
     setMessageThreadContext();
     setAppPrefsContext();
+    setMCPToolContext();
 
     const messageThread = getMessageThreadContext();
     const appPrefs = getAppPrefsContext();
-
 
     // Sidebar resizing
     function handleMouseDown(event: MouseEvent) {
@@ -65,7 +67,10 @@
       isLoading={false}
       error={null}
       onCreate={messageThread.handleCreateThread}
-      onSelect={messageThread.handleSelectThread}
+      onSelect={(threadId) => {
+        goto('/');
+        messageThread.handleSelectThread(threadId);
+      }}
       onDelete={messageThread.handleDeleteThread}
       onPin={messageThread.handlePinThread}
       onArchive={messageThread.handleArchiveThread}
