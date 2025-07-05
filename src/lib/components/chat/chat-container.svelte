@@ -1,9 +1,5 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { 
-    appPrefs,
-    messageThread,
-  } from '../../stores/index.js';
   import { cn, scrollToBottom, isScrolledToBottom } from '@/utils.js';
   import type { ChatMessage, ChatConfig, ChatAttachment, PromptSuggestion } from '../../types/index.js';
   import ChatMessageList from './chat-message-list.svelte';
@@ -12,6 +8,8 @@
   import TypingIndicator from '@/components/ui/typing-indicator.svelte';
   import ThemeToggle from '@/components/ui/theme-toggle.svelte';
   import type { MCPTool } from '@/types/mcp.js';
+  import { getMessageThreadContext } from '@/stores/message-thread.svelte.js';
+  import { getAppPrefsContext } from '@/stores/app-prefs.svelte.js';
 
   interface Props {
     initialMessages?: ChatMessage[];
@@ -35,6 +33,9 @@
     onThinkingToggle?: (event: { messageId: string }) => void;
     onToolCancel?: (event: { toolCallId: string }) => void;
   }
+
+  const messageThread = getMessageThreadContext();
+  const appPrefs = getAppPrefsContext();
 
   let {
     initialMessages = [],
@@ -65,6 +66,7 @@
 
   // Initialize stores
   onMount(() => {
+    
     if (initialMessages.length > 0) {
       messageThread.setMessages(initialMessages);
     }

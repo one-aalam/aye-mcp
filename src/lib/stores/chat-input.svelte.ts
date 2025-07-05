@@ -1,4 +1,5 @@
 import type { ChatAttachment, VoiceInputState } from "@/types";
+import { getContext, setContext } from "svelte";
 
 /**
  * ChatInputState - Manages chat input state and operations
@@ -236,3 +237,14 @@ export class ChatInputState {
       return this.attachments.reduce((total, att) => total + att.size, 0);
     }
 }
+
+const CHAT_INPUT_KEY = Symbol("chat_input");
+
+export const setChatInputContext = () => {
+  const chatInput = new ChatInputState();
+  return setContext(CHAT_INPUT_KEY, chatInput);
+}
+
+export const getChatInputContext = () => {
+  return getContext<ReturnType<typeof setChatInputContext>>(CHAT_INPUT_KEY);
+} 

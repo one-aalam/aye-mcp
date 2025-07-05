@@ -1,5 +1,6 @@
 import type { ChatConfig, ChatTheme, PromptSuggestion } from "@/types";
 import { DEFAULT_CONFIG, DEFAULT_THEME } from "@/config";
+import { getContext, setContext } from "svelte";
 
 /**
  * AppPrefs - Manages application preferences and global state
@@ -119,3 +120,14 @@ export class AppPrefs {
       }
     }
   }
+
+const APP_PREFS_KEY = Symbol("app_prefs");
+
+export const setAppPrefsContext = () => {
+  const appPrefs = new AppPrefs();
+  return setContext(APP_PREFS_KEY, appPrefs);
+}
+
+export const getAppPrefsContext = () => {
+  return getContext<ReturnType<typeof setAppPrefsContext>>(APP_PREFS_KEY);
+} 

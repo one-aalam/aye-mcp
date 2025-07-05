@@ -6,7 +6,6 @@
   import ChatContainer from "@/components/chat/chat-container.svelte";
   import ThreadSidebar from "@/components/sidebar/thread-sidebar.svelte";
   import { cn, createUserChatMessage, createAssistantChatMessage, createChatThread } from "../lib";
-  import { appPrefs, messageThread } from "../lib/stores/index.js";
   import { CUSTOM_SUGGESTIONS } from "../lib/constants";
   import { createMessage as persistMessage, getMessagesByThread } from "@/db/chat_message";
   import { createThread, deleteThread, getThreads, pinThread, archiveThread } from "@/db/chat_thread";
@@ -16,7 +15,12 @@
   import { mcpStartupManager, type StartupResult } from "@/mcp/startup-manager";
   import type { MCPTool } from "@/types/mcp";
   import { toOllamaTool } from "@/tools/compat";
-    import { mcpConfigManager } from "@/mcp/config-manager";
+  import { getMessageThreadContext } from "@/stores/message-thread.svelte.js";
+  import { getAppPrefsContext } from "@/stores/app-prefs.svelte.js";
+
+  const messageThread = getMessageThreadContext();
+  const appPrefs = getAppPrefsContext();
+
 
   let isInitialized = $state(false);
   let initError = $state<string | null>(null);
@@ -184,7 +188,6 @@
         let toolOutput: string | null = null;
 
         try {
-          console.log(toolName)
           if(toolName.startsWith(MCP_SERVERS.TOOLS_PREFIX)) {
             const { serverId, toolName: actualToolName } = parseMCPToolName(toolName);
             console.log(`Calling MCP tool: ${actualToolName} on server ${serverId}`);

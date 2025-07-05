@@ -1,6 +1,7 @@
 import type { 
     ChatMessage
 } from '@/types';
+import { getContext, setContext } from 'svelte';
   
 /**
  * MessageThread - Manages all message-related state and operations
@@ -117,3 +118,14 @@ export class MessageThread {
       return this.messages.filter(msg => msg.toolCalls && msg.toolCalls.length > 0);
     }
 }
+
+const MESSAGE_THREAD_KEY = Symbol("message_thread");
+
+export const setMessageThreadContext = () => {
+  const messageThread = new MessageThread();
+  return setContext(MESSAGE_THREAD_KEY, messageThread);
+}
+
+export const getMessageThreadContext = () => {
+  return getContext<ReturnType<typeof setMessageThreadContext>>(MESSAGE_THREAD_KEY);
+} 
