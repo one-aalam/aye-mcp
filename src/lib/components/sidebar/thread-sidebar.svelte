@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Button } from '@/components/ui/button';
     import { cn, formatTime } from '@/utils.js';
     import type { ChatThread } from '@/types/index.js';
     import { 
@@ -11,7 +12,13 @@
       PinOff,
       Search,
       X,
-      Loader2
+      Loader2,
+
+      SettingsIcon,
+
+      MessageCircle
+
+
     } from '@lucide/svelte';
   
     interface Props {
@@ -127,11 +134,24 @@
   )}>
     <!-- Header -->
     <div class="flex-shrink-0 p-4 border-b border-border">
-      <div class="flex items-center gap-2 mb-3">
-        <h2 class="text-lg font-semibold flex-1">Conversations</h2>
-        
-        <button
-          class="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+      <!-- Create Thread Button -->
+      <div class="flex flex-row gap-2 py-2">
+        <Button
+          class="flex-1"
+          onclick={() => onCreate?.()}
+          disabled={isLoading}
+        >
+          {#if isLoading}
+            <Loader2 class="w-4 h-4 animate-spin" />
+          {:else}
+            <Plus class="w-4 h-4" />
+          {/if}
+          New Chat
+        </Button>
+        <!-- <Separator orientation="vertical" /> -->
+        <Button
+          variant="ghost"
+          class="ml-0"
           onclick={toggleSearch}
           title="Search conversations"
         >
@@ -140,9 +160,8 @@
           {:else}
             <Search class="w-4 h-4" />
           {/if}
-        </button>
+        </Button>
       </div>
-  
       <!-- Search Input -->
       {#if showSearch}
         <div class="mb-3">
@@ -155,20 +174,10 @@
           />
         </div>
       {/if}
-  
-      <!-- Create Thread Button -->
-      <button
-        class="w-full flex items-center gap-2 p-3 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        onclick={() => onCreate?.()}
-        disabled={isLoading}
-      >
-        {#if isLoading}
-          <Loader2 class="w-4 h-4 animate-spin" />
-        {:else}
-          <Plus class="w-4 h-4" />
-        {/if}
-        New Conversation
-      </button>
+      <div class="flex flex-col gap-2 py-2">
+        <a href="/settings" class="flex items-center gap-2"><SettingsIcon class="w-4 h-4" /> Settings</a>
+        <a href="/" class="flex items-center gap-2"><MessageCircle class="w-4 h-4" /> Chat</a>
+      </div>
     </div>
   
     <!-- Thread List -->

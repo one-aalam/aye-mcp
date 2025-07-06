@@ -58,9 +58,6 @@
     'h-full overflow-hidden',
     !appPrefs.sidebarOpen && 'opacity-0'
   )}>
-    <div>
-      <a href="/settings">Settings</a>
-    </div>
     <ThreadSidebar
       threads={messageThread.threads}
       currentThreadId={messageThread.currentThreadId}
