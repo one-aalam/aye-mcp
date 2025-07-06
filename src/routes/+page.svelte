@@ -2,12 +2,13 @@
   import { onMount } from "svelte";
   import ollama from "ollama/browser";
   import type { ChatAttachment } from "@/types";
-  import { MODEL, MCP_SERVERS, prepareMCPToolName, parseMCPToolName } from "@/config";
+  import { MODEL, MCP_SERVERS, parseMCPToolName } from "@/config";
   import ChatContainer from "@/components/chat/chat-container.svelte";
+  import MCPStatusAlert from "@/components/mcp/mcp-status-alert.svelte";
   import { get_current_weather } from "../lib/tools/impl";
   import { get_current_weather as get_current_weather_def } from "../lib/tools/defs";
   import { mcpManager } from "@/mcp/mcp-manager";
-  import { mcpStartupManager, type StartupResult } from "@/mcp/startup-manager";
+  import { mcpStartupManager } from "@/mcp/startup-manager";
   import { toOllamaTool } from "@/tools/compat";
   import { getMessageThreadContext } from "@/stores/message-thread.svelte.js";
   import { getAppPrefsContext } from "@/stores/app-prefs.svelte.js";
@@ -16,12 +17,6 @@
   const messageThread = getMessageThreadContext();
   const appPrefs = getAppPrefsContext();
   const mcpTool = getMCPToolContext();
-
-
-  let isInitialized = $state(false);
-  let initError = $state<string | null>(null);
-  let isLoading = $state(true);
-  let mcpInitResult = $state<StartupResult | null>(null);
 
   const availableLocalTools = {
     get_current_weather
@@ -171,77 +166,25 @@
   }
 
     onMount(async () => {
-      // Load MCP servers and tools
       try {
-        mcpManager.addEventListener((event) => {
-          switch (event.type) {
-            case 'connected':
-              console.log(`MCP server connected`, event);
-              break;
-            case 'disconnected':
-              console.log(`MCP server disconnected`);
-              break;
-            case 'error':
-              const errorEvent = event as any;
-              console.log(`MCP server error: ${errorEvent.error || 'Unknown error'}`);
-              break;
-            case 'tools_updated':
-              const toolsEvent = event as any;
-              console.log(`Tools updated for server ${toolsEvent.serverId}:`, toolsEvent.tools);
-              break;
-          }
-        });
-        const initResult = await mcpStartupManager.initializeFromConfig();
-        mcpInitResult = initResult;
-        isInitialized = true;
+        mcpManager.addEventListener(mcpTool.handleMCPServerEvents);
+        mcpTool.isLoading = true;
+        const { total } = await mcpStartupManager.initializeFromConfig();
+        await mcpTool.initialize(total);
+       
       } catch (error) {
-        initError = error instanceof Error ? error.message : 'Unknown error';
+        mcpTool.initError = error instanceof Error ? error.message : 'Unknown error';
       } finally {
-        isLoading = false;
-      }
-    });
-
-    $effect(() => {
-      if (isInitialized && initError === null) {
-        mcpTool.loadTools();
+        mcpTool.isLoading = false;
       }
     });
 </script>
   <!-- Main Content -->
   <div class="flex-1 flex flex-col min-w-0">
-    {#if mcpInitResult && (mcpInitResult.failed > 0 || mcpInitResult.total === 0)}
-        <div class="bg-yellow-50 dark:bg-yellow-950/20 border-b border-yellow-200 dark:border-yellow-800 px-4 py-2">
-          <div class="flex items-center gap-2 text-sm">
-            <svg class="w-4 h-4 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span class="text-yellow-800 dark:text-yellow-200">
-              {#if mcpInitResult.total === 0}
-                No MCP servers configured. Tools functionality limited to built-in tools.
-              {:else}
-                MCP Status: {mcpInitResult.successful}/{mcpInitResult.total} servers running
-                {#if mcpInitResult.failed > 0}
-                  ({mcpInitResult.failed} failed)
-                {/if}
-              {/if}
-            </span>
-            <!-- svelte-ignore a11y_consider_explicit_label -->
-            <button 
-              onclick={async () => {
-                const result = await mcpStartupManager.reloadConfiguration();
-                mcpInitResult = result;
-              }}
-              class="ml-auto text-yellow-600 dark:text-yellow-400 hover:text-yellow-800 dark:hover:text-yellow-200"
-              title="Reload MCP servers"
-            >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      {/if}
-  <ChatContainer
+    {#if !mcpTool.isInitialized && !mcpTool.isLoading}
+        <MCPStatusAlert startupResult={mcpTool.mcpInitResult} loading={false} />
+    {/if}
+    <ChatContainer
     initialConfig={appPrefs.config}
     availableTools={mcpTool.tools}
     height="100vh"
