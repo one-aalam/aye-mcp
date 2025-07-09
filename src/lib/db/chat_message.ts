@@ -134,7 +134,7 @@ export const updateMessage = async (id: string, data: UpdateMessageRequest): Pro
     values.push(id);
     
     const result = await db.execute(
-      `UPDATE chat_message SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+      `UPDATE chat_messages SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
       values
     );
   
