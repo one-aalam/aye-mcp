@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { mount, onMount } from 'svelte';
   import { cn, extractCodeBlocks } from '@/utils';
   import CopyButton from '@/components/ui/copy-button.svelte';
 
@@ -9,9 +9,12 @@
   }
 
   let { content, class: className = '' }: Props = $props();
-
-  let renderedContent = $state('');
-  let codeBlocks = $state<Array<{ language: string; code: string; id: string }>>([]);
+  let codeBlocks = $derived.by<Array<{ language: string; code: string; id: string }>>(() => {
+    return extractCodeBlocks(content).map((block, index) => ({
+      ...block,
+      id: `code-block-${index}`
+    }));
+  });
 
   // Simple markdown renderer - in production, you'd use a proper markdown library
   function renderMarkdown(text: string): string {
@@ -76,12 +79,6 @@
         </div>
       `;
       html = html.replace(placeholder, codeHtml);
-      
-      // Store code block data for copy buttons
-      codeBlocks.push({
-        ...block,
-        id: blockId
-      });
     });
 
     return html;
@@ -94,42 +91,31 @@
   }
 
   onMount(() => {
-    renderedContent = renderMarkdown(content);
-    
-    // Add copy buttons to code blocks after rendering
     setTimeout(() => {
       codeBlocks.forEach(block => {
         const container = document.getElementById(`${block.id}-copy`);
         if (container) {
-          // Create copy button component instance
-          // const copyButton = new CopyButton({
-          //   target: container,
-          //   props: {
-          //     text: block.code,
-          //     size: 'sm',
-          //     variant: 'ghost',
-          //     class: 'opacity-0 group-hover:opacity-100 transition-opacity'
-          //   }
-          // });
+          mount(CopyButton, {
+            target: container,
+            props: {
+              text: block.code,
+              size: 'sm',
+              variant: 'ghost',
+              class: 'opacity-0 group-hover:opacity-100 transition-opacity'
+            }
+          });
         }
       });
     }, 0);
   });
 
-  // Update content when prop changes
-  $effect(() => {
-    if (content) {
-      codeBlocks = [];
-      renderedContent = renderMarkdown(content);
-    }
-  });
 </script>
 
 <div 
   class={cn('prose prose-sm dark:prose-invert max-w-none', className)}
   role="article"
 >
-  {@html renderedContent}
+  {@html renderMarkdown(content)}
 </div>
 
 <style>
