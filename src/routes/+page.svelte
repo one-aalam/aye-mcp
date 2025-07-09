@@ -1,25 +1,25 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import ollama from "ollama/browser";
   import type { ChatAttachment } from "@/types";
   import { MODEL, MCP_SERVERS, parseMCPToolName } from "@/config";
   import ChatContainer from "@/components/chat/chat-container.svelte";
   import MCPStatusAlert from "@/components/mcp/mcp-status-alert.svelte";
   import { get_current_weather } from "../lib/tools/impl";
-  import { get_current_weather as get_current_weather_def } from "../lib/tools/defs";
   import { mcpManager } from "@/mcp/mcp-manager";
-  import { mcpStartupManager } from "@/mcp/startup-manager";
-  import { toOllamaTool } from "@/tools/compat";
   import { getMessageThreadContext } from "@/stores/message-thread.svelte.js";
   import { getAppPrefsContext } from "@/stores/app-prefs.svelte.js";
   import { getMCPToolContext } from "@/stores/mcp-tool.svelte.js";
+  import type { GenaiToolCall } from "@/ipc/genai/types";
+  import { get_current_weather_genai } from "@/ipc/genai/tooldefs";
+  import {listenToStream, sendMessage, streamMessage} from "@/ipc/genai/invoke";
+  import { mcpStartupManager } from "@/mcp/startup-manager";
 
   const messageThread = getMessageThreadContext();
   const appPrefs = getAppPrefsContext();
   const mcpTool = getMCPToolContext();
 
   const availableLocalTools = {
-    get_current_weather
+    get_current_weather,
   };
 
   appPrefs.updateConfig({
@@ -37,74 +37,141 @@
     enableDelete: true,
   })
 
-  // Event handlers
-  async function handleMessageSend(data: { content: string; attachments: ChatAttachment[] | undefined; }, selectedTools: string[] = []): Promise<void> {
-    await messageThread.addUserMessage(data.content, data.attachments);
-    messageThread.setTyping(true);
-    // Call LLM
-    // Prepare tools for LLM - combine built-in and MCP tools
-    const allTools = [get_current_weather_def, ...mcpTool.tools.map(toOllamaTool)];
-    // const allowedTools = selectedTools.length > 0 ? allTools.filter(tool => {
-    //   const toolName = tool.function.name!.startsWith('mcp_') 
-    //         ? tool.function.name!.split('_').slice(2).join('_') 
-    //         : tool.function.name!;
-    //   return selectedTools.includes(toolName)
-    // }) : allTools;
-    // console.log(allowedTools)
-    const { message: llmResponse, ...rest } = await ollama.chat({
-      model: MODEL,
-      tools: allTools,
-      messages: messageThread.messageHistory,
-    });
-    messageThread.setTyping(false);
-
-    await messageThread.addAssistantMessage(llmResponse.content, rest);
-    // If tool calls in the response
-    if(llmResponse.tool_calls && llmResponse.tool_calls.length > 0) {
-      // Process tool calls from the response
-      messageThread.setTyping(true);
-      for (const tool of llmResponse.tool_calls) {
-        const toolName = tool.function.name;
-        let toolOutput: string | null = null;
-
-        try {
-          if(toolName.startsWith(MCP_SERVERS.TOOLS_PREFIX)) {
-            const { serverId, toolName: actualToolName } = parseMCPToolName(toolName);
-            console.log(`Calling MCP tool: ${actualToolName} on server ${serverId}`);
-            const result = await mcpManager.callTool(serverId!, actualToolName, tool.function.arguments);
-            toolOutput = JSON.stringify(result);
-          } else {
-            console.log(`Calling local tool: ${toolName}`);
-            // @ts-ignore
-            const functionToCall = availableLocalTools[toolName];
-            if (functionToCall) {
-              const result = await functionToCall(tool.function.arguments);
-              toolOutput = result.toString();
+  async function handleToolCalls(toolCalls: GenaiToolCall[]) {
+        for (const toolCall of toolCalls) {
+          const toolName = toolCall.fn_name;
+          let toolOutput: string | null = null;
+          try {
+            if(toolCall.fn_name.startsWith(MCP_SERVERS.TOOLS_PREFIX)) {
+              const { serverId, toolName: actualToolName } = parseMCPToolName(toolCall.fn_name);
+              const result = await mcpManager.callTool(serverId!, actualToolName, toolCall.fn_arguments);
+              toolOutput = JSON.stringify(result);
             } else {
-              console.log('Function', toolName, 'not found');
-              toolOutput = 'Function not found';
+            // @ts-ignore
+              const functionToCall = availableLocalTools[toolName];
+              if (functionToCall) {
+                const result = await functionToCall(toolCall.fn_arguments);
+                toolOutput = JSON.stringify(result);
+              } else {
+                toolOutput = 'Function not found';
+              }
             }
+          } catch (error) {
+            toolOutput = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           }
-        } catch (error) {
-          console.error(`Error calling tool ${toolName}:`, error);
-          toolOutput = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          messageThread.addToolOutputToMessageHistory(toolOutput!);
         }
-        
-        messageThread.addToolOutputToMessageHistory(toolOutput!);
+  }
+
+
+  /**
+   * Handles the message send event to the Rust backend
+   * @param data The message data
+   * @param selectedTools The selected tools
+   */
+  async function handleMessageSendIPC(data: { content: string; attachments: ChatAttachment[] | undefined; }, selectedTools: string[] = []): Promise<void> {
+    
+    await messageThread.addUserMessage(data.content, data.attachments);
+    // 1. Make a call to the LLM
+    messageThread.setTyping(true);
+    const allTools = [get_current_weather_genai];
+    const response = await sendMessage({
+      model: MODEL,
+      messages: messageThread.messageHistory,
+      tools: allTools,
+    });
+
+    // 2. Process the response
+    if(response) {
+      messageThread.setTyping(false);
+      await messageThread.addAssistantMessage(response.message, response.metadata as unknown as Record<string, unknown>);
+      // 3. Handle tool calls
+      if(response.tool_calls && response.tool_calls.length > 0) {
+        // Process tool calls from the response
+        messageThread.setTyping(true);
+        await handleToolCalls(response.tool_calls);
+        messageThread.setTyping(false);
       }
-      messageThread.setTyping(false);
-      // Send to LLM
+      // 4. Send to LLM for final response
       messageThread.setTyping(true);
-      const { message: finalLLMResponse, ...rest } = await ollama.chat({
-          model: MODEL,
-          messages: messageThread.messageHistory
-        });
+      const finalResponse = await sendMessage({
+        model: MODEL,
+        messages: messageThread.messageHistory
+      });
       messageThread.setTyping(false);
 
-      await messageThread.addAssistantMessage(finalLLMResponse.content, rest);
-
+      if(finalResponse) {
+        await messageThread.addAssistantMessage(finalResponse.message, finalResponse.metadata as unknown as Record<string, unknown>);
+      }
     } else {
       console.log('No tool calls returned from model');
+    }
+  }
+
+  /**
+   * Handles the message stream event to the Rust backend
+   * @param data The message data
+   * @param selectedTools The selected tools
+   */
+  async function handleMessageStreamIPC(data: { content: string; attachments: ChatAttachment[] | undefined; }, selectedTools: string[] = []): Promise<void> {
+    await messageThread.addUserMessage(data.content, data.attachments);
+    messageThread.setTyping(true);
+    let assistantMessageId = await messageThread.addPlaceholderAssistantMessage();
+    
+    try {
+        // Listen for streaming events
+        const unlisten = await listenToStream({
+          onChunk: (chunk) => {
+            messageThread.updatePlaceholderAssistantMessage(chunk.accumulated);
+          },
+          onReasoning: (reasoning) => {
+            console.log('Reasoning:', reasoning);
+          },
+          onToolCall: async (toolCall) => {
+            if(toolCall) {
+              console.log('ToolCall:', toolCall)
+              messageThread.setTyping(true);
+              await handleToolCalls([toolCall]);
+              messageThread.setTyping(false);
+            }
+          },
+          onEnd: async (end) => {
+            messageThread.setTyping(false);
+            await messageThread.finalizePlaceholderAssistantMessage(assistantMessageId);
+            if(end.tool_calls && end.tool_calls.length > 0) {
+              assistantMessageId = await messageThread.addPlaceholderAssistantMessage();
+              
+              messageThread.setTyping(true);
+              await streamMessage({
+                model: MODEL,
+                messages: messageThread.messageHistory
+              });
+              messageThread.setTyping(false);
+            } else {
+              await unlisten();
+            }
+          },
+          onError: async (error) => {
+            messageThread.updatePlaceholderAssistantMessage(`Error: ${error}`);
+            await messageThread.finalizePlaceholderAssistantMessage(assistantMessageId);
+            messageThread.setTyping(false);
+            await unlisten();
+          }
+        })
+
+        // Start the stream
+        await streamMessage({
+            model: MODEL,
+            messages: messageThread.messageHistory,
+            tools: [
+              get_current_weather_genai
+            ],
+        });
+      } catch (err) {
+        console.error('Failed to start streaming:', err);
+        messageThread.updatePlaceholderAssistantMessage(`Error: ${err}`);
+        messageThread.finalizePlaceholderAssistantMessage(assistantMessageId);
+        messageThread.setTyping(false);
     }
   }
 
@@ -190,7 +257,7 @@
     height="100vh"
     showHeader={true}
     showPromptSuggestions={true}
-    onMessageSend={handleMessageSend}
+    onMessageSend={handleMessageStreamIPC}
     onCopy={({ messageId }) => handleMessageCopy({ detail: { messageId } } as CustomEvent)}
     onEdit={({ messageId }) => handleMessageEdit({ detail: { messageId } } as CustomEvent)}
     onRemove={({ messageId }) => handleMessageDelete({ detail: { messageId } } as CustomEvent)}
@@ -201,7 +268,7 @@
     onVoiceStart={handleVoiceStart}
     onVoiceStop={handleVoiceStop}
     onVoiceResult={({ transcript }) => handleVoiceResult({ detail: { transcript } } as CustomEvent)}
-    onPromptSelect={({ suggestion }) => handleMessageSend({ content: suggestion.text, attachments: [] })}
+    onPromptSelect={({ suggestion }) => handleMessageStreamIPC({ content: suggestion.text, attachments: [] })}
     onThemeToggle={handleThemeToggle}
   />
 </div>

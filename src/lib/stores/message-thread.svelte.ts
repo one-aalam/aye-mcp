@@ -9,7 +9,7 @@ import { getContext, onMount, setContext } from 'svelte';
 import { AppPrefs, getAppPrefsContext } from './app-prefs.svelte';
 import { DEFAULT_THREAD_ID, genPromptWithSystemPrompt, MODEL, MODEL_PROVIDER, SYSTEM_PROMPT, THREADS_SELECTED_KEY } from '@/config';
 import { archiveThread, createThread, deleteThread, getThreads, pinThread } from '@/db/chat_thread';
-import { createMessage as persistMessage } from '@/db/chat_message';
+import { createMessage as persistMessage, updateMessage as updatePersistedMessage } from '@/db/chat_message';
 
 import { createAssistantChatMessage, createChatThread, createUserChatMessage } from '..';
   
@@ -94,6 +94,35 @@ export class MessageThread {
       await persistMessage(assistantMessage);
 
       return assistantMessage.id;
+    }
+
+    addPlaceholderAssistantMessage = async(): Promise<string> => {
+      const assistantMessage = createAssistantChatMessage('', {
+        thread_id: this.currentThreadId!,
+        metadata: {},
+      });
+
+      this.messages.push(assistantMessage);
+      this.messageHistory.push({
+        role: 'assistant',
+        content: '',
+      });
+
+      await persistMessage(assistantMessage);
+
+      return assistantMessage.id;
+    }
+
+    updatePlaceholderAssistantMessage = (message: string) => {
+      this.messages[this.messages.length - 1].content = message;
+    }
+
+    finalizePlaceholderAssistantMessage = async(id: string) => {
+      this.messageHistory[this.messageHistory.length - 1].content = this.messages[this.messages.length - 1].content;
+      await updatePersistedMessage(
+        id,
+        { content: this.messages[this.messages.length - 1].content },
+      );
     }
 
     addToolOutputToMessageHistory = (toolOutput: string) => {
