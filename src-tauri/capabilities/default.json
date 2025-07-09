@@ -13,6 +13,35 @@
     "sql:allow-select",
     "fs:default",
     "fs:allow-app-read",
-    "fs:allow-app-write"
+    "fs:allow-app-write",
+    "stronghold:default",
+    {
+      "identifier": "stronghold:allow-save",
+      "allow": [
+        {
+          "path": "$APPLOCALDATA/*"
+        }
+      ]
+    },
+    {
+      "identifier": "stronghold:allow-load-client",
+      "allow": []
+    },
+    {
+      "identifier": "stronghold:allow-create-client", 
+      "allow": []
+    },
+    {
+      "identifier": "stronghold:allow-get-store-record",
+      "allow": []
+    },
+    {
+      "identifier": "stronghold:allow-save-store-record",
+      "allow": []
+    },
+    {
+      "identifier": "stronghold:allow-remove-store-record",
+      "allow": []
+    }
   ]
 }

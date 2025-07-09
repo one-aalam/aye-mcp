@@ -1,6 +1,7 @@
+mod llm;
 mod mcp;
 use tauri_plugin_sql::{Migration, MigrationKind};
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use tauri::Manager;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -192,7 +193,6 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
-
         Migration {
             version: 7,
             description: "create_mcp_servers_table",
@@ -213,7 +213,6 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
-
         Migration {
             version: 8,
             description: "create_mcp_tools_table",
@@ -237,6 +236,7 @@ pub fn run() {
     ];
 
     tauri::Builder::default()
+        // .plugin(tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build()?)
         .plugin(tauri_plugin_fs::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
@@ -244,9 +244,35 @@ pub fn run() {
                 .build(),
         )
         .manage(mcp::init_mcp_manager())
+        // .manage(llm::GenAIState::new())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             greet,
+            // LLM
+            llm::send_message,
+            llm::stream_message,
+            llm::stop_streaming_message,
+
+            llm::list_available_models,
+            llm::update_config,
+            llm::get_config,
+
+
+            llm::test_model_connection,
+            llm::get_model_info,
+            llm::set_model_defaults,
+
+
+            llm::add_auth_provider,
+            llm::remove_auth_provider,
+
+            // Provider key management
+            llm::save_provider_key,
+            llm::remove_provider_key,
+            llm::get_provider_configs,
+            llm::test_provider_connection,
+            llm::load_provider_keys_from_stronghold,
+            // MCP
             mcp::add_mcp_server,
             mcp::remove_mcp_server,
             mcp::call_mcp_tool,
@@ -254,9 +280,22 @@ pub fn run() {
             mcp::list_mcp_servers,
             mcp::get_all_mcp_tools,
         ])
-        .setup(|_app| {  
+        .setup(|app| {
+            // Initialize Stronghold for secure key storage
+            let salt_path = app.path().app_local_data_dir()
+                .expect("could not resolve app local data path")
+                .join("salt.txt");
+            let _ = app.handle().plugin(
+                tauri_plugin_stronghold::Builder::with_argon2(&salt_path).build()
+            );
+
+            let genai_state = llm::GenAIState::new();
+            app.manage(genai_state);
+
             // Set up tracing for MCP SDK
-            tracing_subscriber::fmt::init();            
+            tracing_subscriber::fmt::init();
+            llm::GenAIState::init_logging();
+            tracing::info!("Optimized GenAI Tauri plugin initialized");
             Ok(())
         })
         .run(tauri::generate_context!())
