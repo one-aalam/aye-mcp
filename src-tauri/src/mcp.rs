@@ -1,16 +1,20 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use tauri::{State};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tauri::State;
 use tokio::sync::RwLock;
 
 pub const LATEST_PROTOCOL_VERSION: &str = "2024-11-05";
 // Import rust-mcp-sdk components
 use rust_mcp_sdk::{
-    error::SdkResult, mcp_client::{client_runtime, ClientHandler, ClientRuntime}, schema::{
-        CallToolRequestParams, ClientCapabilities, Implementation, InitializeRequestParams, ListToolsRequestParams
-    }, McpClient, StdioTransport, TransportOptions
+    error::SdkResult,
+    mcp_client::{client_runtime, ClientHandler, ClientRuntime},
+    schema::{
+        CallToolRequestParams, ClientCapabilities, Implementation, InitializeRequestParams,
+        ListToolsRequestParams,
+    },
+    McpClient, StdioTransport, TransportOptions,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,7 +90,10 @@ impl MCPConnection {
         let transport = StdioTransport::create_with_server_launch(
             &config.command,
             config.args.clone(),
-            config.cwd.clone().map(|cwd| HashMap::from([("cwd".to_string(), cwd)])),
+            config
+                .cwd
+                .clone()
+                .map(|cwd| HashMap::from([("cwd".to_string(), cwd)])),
             TransportOptions::default(),
         )?;
 
@@ -114,7 +121,11 @@ impl MCPConnection {
 
         // Load tools
         self.load_tools().await?;
-        println!("Connected to MCP server: {} and discovered {} tools", self.config.name, self.tools.read().await.len());
+        println!(
+            "Connected to MCP server: {} and discovered {} tools",
+            self.config.name,
+            self.tools.read().await.len()
+        );
 
         Ok(())
     }
@@ -126,8 +137,13 @@ impl MCPConnection {
     }
 
     pub async fn load_tools(&self) -> SdkResult<()> {
-        if let Ok(tools_result) = self.client.list_tools(Some(ListToolsRequestParams::default())).await {
-            let mcp_tools: Vec<MCPTool> = tools_result.tools
+        if let Ok(tools_result) = self
+            .client
+            .list_tools(Some(ListToolsRequestParams::default()))
+            .await
+        {
+            let mcp_tools: Vec<MCPTool> = tools_result
+                .tools
                 .into_iter()
                 .map(|tool| MCPTool {
                     name: tool.name,
@@ -141,7 +157,11 @@ impl MCPConnection {
         Ok(())
     }
 
-    pub async fn call_tool(&self, tool_name: &str, arguments: serde_json::Map<String, serde_json::Value>) -> SdkResult<MCPToolCallResponse> {
+    pub async fn call_tool(
+        &self,
+        tool_name: &str,
+        arguments: serde_json::Map<String, serde_json::Value>,
+    ) -> SdkResult<MCPToolCallResponse> {
         let request = CallToolRequestParams {
             name: tool_name.to_string(),
             arguments: Some(arguments),
@@ -149,11 +169,10 @@ impl MCPConnection {
 
         match self.client.call_tool(request).await {
             Ok(result) => {
-                let content: Vec<serde_json::Value> = result.content
+                let content: Vec<serde_json::Value> = result
+                    .content
                     .into_iter()
-                    .map(|content_item| {
-                        serde_json::to_value(content_item).unwrap_or_default()
-                    })
+                    .map(|content_item| serde_json::to_value(content_item).unwrap_or_default())
                     .collect();
 
                 Ok(MCPToolCallResponse {
@@ -162,13 +181,11 @@ impl MCPConnection {
                     error: None,
                 })
             }
-            Err(e) => {
-                Ok(MCPToolCallResponse {
-                    success: false,
-                    content: vec![],
-                    error: Some(e.to_string()),
-                })
-            }
+            Err(e) => Ok(MCPToolCallResponse {
+                success: false,
+                content: vec![],
+                error: Some(e.to_string()),
+            }),
         }
     }
 
@@ -203,21 +220,22 @@ impl MCPManager {
 
     pub async fn add_server(&self, config: MCPServerConfig) -> Result<(), String> {
         let server_id = config.id.clone();
-        
+
         // Create connection
         let connection = MCPConnection::new(config)
             .await
             .map_err(|e| format!("Failed to create MCP connection: {}", e))?;
 
         let connection = Arc::new(connection);
-        
+
         // Store connection
-        self.connections.insert(server_id.clone(), connection.clone());
+        self.connections
+            .insert(server_id.clone(), connection.clone());
 
         // Connect in background
         let connection_clone = connection.clone();
         let server_id_clone = server_id.clone();
-        
+
         tokio::spawn(async move {
             if let Err(e) = connection_clone.connect().await {
                 eprintln!("Failed to connect to MCP server {}: {}", server_id_clone, e);
@@ -225,25 +243,36 @@ impl MCPManager {
                 *connection_clone.status.write().await = "error".to_string();
             }
         });
-        
+
         Ok(())
     }
 
     pub async fn remove_server(&self, server_id: &str) -> Result<(), String> {
         if let Some((_, connection)) = self.connections.remove(server_id) {
-            connection.disconnect().await
+            connection
+                .disconnect()
+                .await
                 .map_err(|e| format!("Failed to disconnect: {}", e))?;
         }
         Ok(())
     }
 
-    pub async fn call_tool(&self, request: MCPToolCallRequest) -> Result<MCPToolCallResponse, String> {
-        let connection = self.connections.get(&request.server_id)
+    pub async fn call_tool(
+        &self,
+        request: MCPToolCallRequest,
+    ) -> Result<MCPToolCallResponse, String> {
+        let connection = self
+            .connections
+            .get(&request.server_id)
             .ok_or_else(|| format!("Server {} not found", request.server_id))?;
 
-        println!("Calling tool {} on server {} with arguments: {:#?}", request.tool_name, request.server_id, request.arguments);
+        println!(
+            "Calling tool {} on server {} with arguments: {:#?}",
+            request.tool_name, request.server_id, request.arguments
+        );
 
-        connection.call_tool(&request.tool_name, request.arguments)
+        connection
+            .call_tool(&request.tool_name, request.arguments)
             .await
             .map_err(|e| e.to_string())
     }
@@ -258,18 +287,18 @@ impl MCPManager {
 
     pub async fn list_servers(&self) -> Vec<MCPServerStatus> {
         let mut statuses = Vec::new();
-        
+
         for entry in self.connections.iter() {
             let status = entry.value().get_status().await;
             statuses.push(status);
         }
-        
+
         statuses
     }
 
     pub async fn get_all_tools(&self) -> Vec<(String, Vec<MCPTool>)> {
         let mut all_tools = Vec::new();
-        
+
         for entry in self.connections.iter() {
             let server_id = entry.key().clone();
             let tools = entry.value().tools.read().await.clone();
@@ -277,7 +306,7 @@ impl MCPManager {
                 all_tools.push((server_id, tools));
             }
         }
-        
+
         all_tools
     }
 }
