@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import type { ChatAttachment } from "./types";
+import { invoke } from "@tauri-apps/api/core";
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -201,4 +202,24 @@ export function scrollToBottom(element: HTMLElement, smooth: boolean = true): vo
 
 export function isScrolledToBottom(element: HTMLElement, threshold: number = 50): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight < threshold;
+}
+
+export async function safeInvoke<T>(command: string, args: any): Promise<T | null> {
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    console.error(`Command ${command} failed:`, error);
+    
+    // Handle specific error types
+    // if (error.message?.includes('Model not available')) {
+    //   console.log('Trying fallback model...');
+    //   // Implement fallback logic
+    // } else if (error.message?.includes('Rate limit')) {
+    //   console.log('Rate limited, waiting...');
+    //   await new Promise(resolve => setTimeout(resolve, 5000));
+    //   // Retry logic
+    // }
+    
+    return null;
+  }
 }
