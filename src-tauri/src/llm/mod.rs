@@ -1,5 +1,5 @@
 use error::{GenAIError, GenAIResult};
-use genai::{chat::{ChatMessage, ChatRequest, ToolCall, ChatStreamEvent}, resolver::{AuthData, AuthResolver}, Client, ModelIden};
+use genai::{chat::{ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ToolCall }, resolver::{AuthData, AuthResolver}, Client, ModelIden};
 use models::{
     AuthProvider, 
     GenAIConfig, 
@@ -17,6 +17,7 @@ use models::{
     StreamingRequest,
     StreamingEventPayload,
 };
+use utils::repair_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{Emitter, State};
@@ -27,6 +28,7 @@ use serde_json::json;
 
 pub mod error;
 pub mod models;
+pub mod utils;
 
 #[derive(Debug)]
 pub struct GenAIState {
@@ -38,6 +40,8 @@ pub struct GenAIState {
     pub streams: Arc<RwLock<HashMap<Uuid, StreamingSession>>>,
     /// Cached provider keys (in memory, loaded from Stronghold)
     provider_keys: Arc<RwLock<HashMap<String, String>>>,
+    /// Active client with provider-specific authentication
+    active_client: Arc<RwLock<Option<genai::Client>>>,
 }
 
 impl GenAIState {
@@ -47,6 +51,7 @@ impl GenAIState {
             config: Arc::new(RwLock::new(GenAIConfig::default())),
             streams: Arc::new(RwLock::new(HashMap::new())),
             provider_keys: Arc::new(RwLock::new(HashMap::new())),
+            active_client: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -56,6 +61,7 @@ impl GenAIState {
             config: Arc::new(RwLock::new(GenAIConfig::default())),
             streams: Arc::new(RwLock::new(HashMap::new())),
             provider_keys: Arc::new(RwLock::new(HashMap::new())),
+            active_client: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -67,10 +73,15 @@ impl GenAIState {
         let auth_resolver = AuthResolver::from_resolver_fn(
             move |model_iden: ModelIden| -> Result<Option<AuthData>, genai::resolver::Error> {
                 let adapter_kind_str = model_iden.adapter_kind.to_string().to_lowercase();
+                let key_name = adapter_kind_str.clone() + "_api_key";
+                
+                println!("Adapter kind: {}", key_name);
                 
                 // Try to get key from our cached provider keys
                 if let Ok(keys) = provider_keys.try_read() {
-                    if let Some(api_key) = keys.get(&adapter_kind_str) {
+                    println!("Provider keys: {:#?}", keys);
+                    if let Some(api_key) = keys.get(&key_name) {
+                        println!("Found API key for {}", adapter_kind_str);
                         return Ok(Some(AuthData::from_single(api_key.clone())));
                     }
                 }
@@ -99,6 +110,20 @@ impl GenAIState {
         
         tracing::info!("Stronghold authentication initialized");
         Ok(auth_resolver)
+    }
+
+    /// Set active client with provider authentication
+    pub async fn set_active_client(&self, client: genai::Client) {
+        *self.active_client.write().await = Some(client);
+    }
+
+    /// Get active client or fallback to default
+    pub async fn get_active_client(&self) -> genai::Client {
+        if let Some(client) = self.active_client.read().await.as_ref() {
+            client.clone()
+        } else {
+            self.client.clone()
+        }
     }
 
     /// Update provider keys in memory (called after Stronghold operations)
@@ -132,6 +157,25 @@ impl GenAIState {
     }
 }
 
+/// Select and initialize a provider-specific client
+#[tauri::command]
+pub async fn select_provider(
+    provider: String,
+    state: tauri::State<'_, GenAIState>,
+) -> Result<(), GenAIError> {
+    tracing::info!("Selecting provider: {}", provider);
+    
+    let auth_resolver = state.init_with_stronghold_auth().await?;
+    let new_client = Client::builder()
+        .with_auth_resolver(auth_resolver)
+        .build();
+    
+    state.set_active_client(new_client).await;
+    tracing::info!("Provider {} selected and client initialized", provider);
+    
+    Ok(())
+}
+
 /// Send a direct chat message without session management
 #[tauri::command]
 pub async fn send_message(
@@ -152,15 +196,18 @@ pub async fn send_message(
 
     // Build chat request from provided messages
     let mut chat_req = ChatRequest::new(chat_messages);
+    let mut chat_options = ChatOptions::default().with_capture_usage(true);
 
     if let Some(tools) = request.tools {
         chat_req = chat_req.with_tools(tools);
     }
 
+    // Use active client with provider authentication
+    let client = state.get_active_client().await;
+
     // Execute the chat request
-    let chat_res = state
-        .client
-        .exec_chat(&request.model, chat_req, request.options.as_ref())
+    let chat_res = client
+        .exec_chat(&request.model, chat_req, Some(&chat_options))
         .await
         .map_err(|e| GenAIError::api(e.to_string()))?;
 
@@ -216,8 +263,10 @@ pub async fn stream_message(
 
     // Build chat request
     let mut chat_req = ChatRequest::new(chat_messages);
+    let mut chat_options = ChatOptions::default().with_capture_usage(true);
     if let Some(tools) = request.tools {
         chat_req = chat_req.with_tools(tools);
+        chat_options = chat_options.with_capture_tool_calls(true);
     }
 
     let model = request.model.clone();
@@ -227,15 +276,19 @@ pub async fn stream_message(
     let mut streaming_session = StreamingSession::new(&model);
     streaming_session.active = true;
 
-    let client = state.client.clone();
+    // Use active client with provider authentication
+    let client = state.get_active_client().await;
+    
     let handle = tokio::spawn(async move {
         match client
-            .exec_chat_stream(&model, chat_req, request.options.as_ref())
+            .exec_chat_stream(&model, chat_req, Some(&chat_options))
             .await
         {
             Ok(mut chat_stream) => {
                 let mut accumulated_response = String::new();
                 let mut tool_calls: Vec<ToolCall> = Vec::new();
+                // Tool call accumulation state
+                let mut accumulated_tool_calls: HashMap<String, ToolCall> = HashMap::new();
 
                 // Emit start event
                 let _ = app.emit(
@@ -265,27 +318,95 @@ pub async fn stream_message(
                                     data: json!({
                                         "content": chunk.content,
                                         "accumulated": accumulated_response.clone(),
-                                        // "accumulated": if config.include_accumulated {
-                                        //     accumulated_response.clone()
-                                        // } else {
-                                        //     String::new()
-                                        // }
                                     }),
                                     timestamp: chrono::Utc::now(),
                                 }
                             );
                         }
                         Ok(ChatStreamEvent::ToolCallChunk(tool_chunk)) => {
-                            tool_calls.push(tool_chunk.tool_call.clone());
+                            let call_id = tool_chunk.tool_call.call_id.clone();
+                            
+                            // Handle the pattern where first chunk has metadata, subsequent chunks have "call_0" with arguments
+                            if !tool_chunk.tool_call.fn_name.is_empty() {
+                                // This is likely the first chunk with metadata (fn_name and real call_id)
+                                accumulated_tool_calls.insert(call_id.clone(), tool_chunk.tool_call.clone());
+                            } else if call_id == "call_0" || call_id.is_empty() {
+                                // This is likely an argument chunk - find the most recent tool call to append to
+                                if let Some((_, existing_call)) = accumulated_tool_calls.iter_mut().last() {
+                                    // Append the argument string to existing arguments
+                                    let new_arg_str = match &tool_chunk.tool_call.fn_arguments {
+                                        serde_json::Value::String(s) => s.clone(),
+                                        other => other.to_string().trim_matches('"').to_string(),
+                                    };
+                                    
+                                    let current_args_str = match &existing_call.fn_arguments {
+                                        serde_json::Value::String(s) => s.clone(),
+                                        other => other.to_string().trim_matches('"').to_string(),
+                                    };
+                                    
+                                    let concatenated_args = format!("{}{}", current_args_str, new_arg_str);
+                                    existing_call.fn_arguments = serde_json::Value::String(concatenated_args);
+                                }
+                            } else {
+                                // Standard case - same call_id for all chunks
+                                if let Some(existing_call) = accumulated_tool_calls.get_mut(&call_id) {
+                                    // Append arguments
+                                    let new_arg_str = match &tool_chunk.tool_call.fn_arguments {
+                                        serde_json::Value::String(s) => s.clone(),
+                                        other => other.to_string().trim_matches('"').to_string(),
+                                    };
+                                    
+                                    let current_args_str = match &existing_call.fn_arguments {
+                                        serde_json::Value::String(s) => s.clone(),
+                                        other => other.to_string().trim_matches('"').to_string(),
+                                    };
+                                    
+                                    let concatenated_args = format!("{}{}", current_args_str, new_arg_str);
+                                    existing_call.fn_arguments = serde_json::Value::String(concatenated_args);
+                                } else {
+                                    // New tool call
+                                    accumulated_tool_calls.insert(call_id.clone(), tool_chunk.tool_call.clone());
+                                }
+                            }
 
-                            let _ = app.emit("genai-stream-event", StreamingEventPayload {
-                                event_type: StreamingEventType::ToolCall,
-                                stream_id: stream_id.to_string(),
-                                data: json!({
-                                    "tool_call": tool_chunk.tool_call
-                                }),
-                                timestamp: chrono::Utc::now(),
-                            });
+                            
+                            // Check all accumulated tool calls for completion
+                            let mut completed_calls = Vec::new();
+                            for (id, call) in &accumulated_tool_calls {
+                                let args_str = match &call.fn_arguments {
+                                    serde_json::Value::String(s) => s.clone(),
+                                    other => other.to_string(),
+                                };
+                                
+                                // Check if arguments form valid JSON and look complete
+                                if !call.fn_name.is_empty() && 
+                                   !args_str.is_empty() && 
+                                   args_str.starts_with('{') && 
+                                   args_str.ends_with('}') {
+                                    if let Some(parsed_json) = repair_json(&args_str) {
+                                        // Create completed tool call with parsed JSON
+                                        let mut completed_call = call.clone();
+                                        completed_call.fn_arguments = parsed_json;
+                                        completed_calls.push((id.clone(), completed_call));
+                                    }
+                                }
+                            }
+                            
+                            // Emit completed tool calls and remove from accumulation
+                            for (call_id, completed_call) in completed_calls {
+                                tool_calls.push(completed_call.clone());
+                                
+                                let _ = app.emit("genai-stream-event", StreamingEventPayload {
+                                    event_type: StreamingEventType::ToolCall,
+                                    stream_id: stream_id.to_string(),
+                                    data: json!({
+                                        "tool_call": completed_call
+                                    }),
+                                    timestamp: chrono::Utc::now(),
+                                });
+                                
+                                accumulated_tool_calls.remove(&call_id);
+                            }
                         }
                         Ok(ChatStreamEvent::ReasoningChunk(reasoning)) => {
                             let _ = app.emit("genai-stream-event", StreamingEventPayload {

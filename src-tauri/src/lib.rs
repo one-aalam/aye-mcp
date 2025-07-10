@@ -249,6 +249,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             // LLM
+            llm::select_provider,
             llm::send_message,
             llm::stream_message,
             llm::stop_streaming_message,
