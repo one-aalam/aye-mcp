@@ -45,3 +45,7 @@ tokio-test = "0.4.4"
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
 
+# https://github.com/tauri-apps/plugins-workspace/issues/2048#issuecomment-2923529183
+[profile.dev.package.scrypt]
+opt-level = 3
+

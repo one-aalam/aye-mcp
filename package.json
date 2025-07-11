@@ -17,6 +17,7 @@
     "@tauri-apps/plugin-fs": "~2.3.0",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-sql": "~2.2.1",
+    "@tauri-apps/plugin-stronghold": "~2.3.0",
     "nanoid": "^5.1.5",
     "ollama": "^0.5.16"
   },
