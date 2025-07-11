@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { ChatAttachment } from "@/types";
-  import { MODEL, MCP_SERVERS, parseMCPToolName } from "@/config";
+  import { MCP_SERVERS, parseMCPToolName } from "@/config";
   import ChatContainer from "@/components/chat/chat-container.svelte";
   import MCPStatusAlert from "@/components/mcp/mcp-status-alert.svelte";
   import { get_current_weather } from "../lib/tools/impl";
@@ -9,6 +9,7 @@
   import { getMessageThreadContext } from "@/stores/message-thread.svelte.js";
   import { getAppPrefsContext } from "@/stores/app-prefs.svelte.js";
   import { getMCPToolContext } from "@/stores/mcp-tool.svelte.js";
+  import { getProviderManagerContext } from "@/stores/provider-manager.svelte.js";
   import type { GenaiToolCall } from "@/ipc/genai/types";
   import { get_current_weather_genai } from "@/ipc/genai/tooldefs";
   import {listenToStream, sendMessage, streamMessage} from "@/ipc/genai/invoke";
@@ -17,6 +18,9 @@
   const messageThread = getMessageThreadContext();
   const appPrefs = getAppPrefsContext();
   const mcpTool = getMCPToolContext();
+  const providerManager = getProviderManagerContext();
+
+  let selectedProvider = $state<string | undefined>(undefined);
 
   const availableLocalTools = {
     get_current_weather,
@@ -59,7 +63,7 @@
           } catch (error) {
             toolOutput = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
           }
-          messageThread.addToolOutputToMessageHistory(toolOutput!);
+          messageThread.addToolOutputToMessageHistory(toolOutput!, toolCall.tool_id!);
         }
   }
 
@@ -76,7 +80,7 @@
     messageThread.setTyping(true);
     const allTools = [get_current_weather_genai];
     const response = await sendMessage({
-      model: MODEL,
+      model: providerManager.selectedModel!,
       messages: messageThread.messageHistory,
       tools: allTools,
     });
@@ -95,7 +99,7 @@
       // 4. Send to LLM for final response
       messageThread.setTyping(true);
       const finalResponse = await sendMessage({
-        model: MODEL,
+        model: providerManager.selectedModel!,
         messages: messageThread.messageHistory
       });
       messageThread.setTyping(false);
@@ -130,9 +134,6 @@
           onToolCall: async (toolCall) => {
             if(toolCall) {
               console.log('ToolCall:', toolCall)
-              messageThread.setTyping(true);
-              await handleToolCalls([toolCall]);
-              messageThread.setTyping(false);
             }
           },
           onEnd: async (end) => {
@@ -140,11 +141,14 @@
             await messageThread.finalizePlaceholderAssistantMessage(assistantMessageId);
             if(end.tool_calls && end.tool_calls.length > 0) {
               assistantMessageId = await messageThread.addPlaceholderAssistantMessage();
-              
+              await handleToolCalls(end.tool_calls);
               messageThread.setTyping(true);
               await streamMessage({
-                model: MODEL,
-                messages: messageThread.messageHistory
+                model: providerManager.selectedModel!,
+                messages: messageThread.messageHistory,
+                tools: [
+                  get_current_weather_genai
+                ]
               });
               messageThread.setTyping(false);
             } else {
@@ -161,7 +165,7 @@
 
         // Start the stream
         await streamMessage({
-            model: MODEL,
+            model: providerManager.selectedModel!,
             messages: messageThread.messageHistory,
             tools: [
               get_current_weather_genai
@@ -236,6 +240,7 @@
       try {
         mcpManager.addEventListener(mcpTool.handleMCPServerEvents);
         mcpTool.isLoading = true;
+        await providerManager.initialize();
         const { total } = await mcpStartupManager.initializeFromConfig();
         await mcpTool.initialize(total);
        
@@ -244,6 +249,9 @@
       } finally {
         mcpTool.isLoading = false;
       }
+    });
+    $effect(() => {
+      selectedProvider = providerManager.selectedProvider;
     });
 </script>
   <!-- Main Content -->
@@ -254,6 +262,14 @@
     <ChatContainer
     initialConfig={appPrefs.config}
     availableTools={mcpTool.tools}
+
+
+    providers={providerManager.providers}
+    configuredProviderNames={providerManager.configuredProviders}
+    selectedProvider={providerManager.selectedProvider!}
+    selectedModel={providerManager.selectedModel!}
+    onModelSelect={providerManager.handleModelSelect}
+
     height="100vh"
     showHeader={true}
     showPromptSuggestions={true}

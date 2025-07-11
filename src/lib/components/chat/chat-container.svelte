@@ -10,6 +10,7 @@
   import type { MCPTool } from '@/types/mcp.js';
   import { getMessageThreadContext } from '@/stores/message-thread.svelte.js';
   import { getAppPrefsContext } from '@/stores/app-prefs.svelte.js';
+  import type { ProviderConfig } from '@/ipc/genai/types';
 
   interface Props {
     initialMessages?: ChatMessage[];
@@ -19,6 +20,13 @@
     showPromptSuggestions?: boolean;
     class?: string;
     availableTools?: MCPTool[];
+
+    providers?: ProviderConfig[];
+    configuredProviderNames?: string[];
+    selectedProvider: string;
+    selectedModel: string;
+    onModelSelect?: (model: string, provider: string) => void;
+
     onThemeToggle?: () => void;
     onMessageSend?: (event: { content: string, attachments: ChatAttachment[] }) => void;
     onAttachmentAdd?: (event: { attachment: ChatAttachment }) => void;
@@ -45,6 +53,13 @@
     showPromptSuggestions = true,
     class: className = '',
     availableTools = [],
+    
+    providers = [],
+    configuredProviderNames = [],
+    selectedProvider,
+    selectedModel,
+    onModelSelect,
+    
     onThemeToggle = () => {},
     onCopy = () => {},
     onEdit = () => {},
@@ -223,6 +238,11 @@
       <MessageInput 
         config={appPrefs.config}
         availableTools={availableTools}
+        providers={providers}
+        configuredProviderNames={configuredProviderNames}
+        selectedProvider={selectedProvider}
+        selectedModel={selectedModel}
+        onModelSelect={onModelSelect}
         onSend={(e) => {
           onMessageSend?.({ content: e.content, attachments: e.attachments || [] })
           setTimeout(scrollToBottomIfNeeded, 100);

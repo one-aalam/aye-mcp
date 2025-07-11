@@ -125,10 +125,14 @@ export class MessageThread {
       );
     }
 
-    addToolOutputToMessageHistory = (toolOutput: string) => {
+    addToolOutputToMessageHistory = (toolOutput: string, toolCallId: string) => {
       this.messageHistory.push({
         role: 'tool',
-        content: toolOutput,
+        content: JSON.stringify({
+          "type": "function_call_output",
+          "call_id": toolCallId,
+          "output": toolOutput,
+        }),
       });
     }
   

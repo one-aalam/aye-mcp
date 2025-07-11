@@ -5,8 +5,10 @@
   import VoiceInput from '@/components/voice/voice-input.svelte';
   import AttachmentPreview from '@/components/attchments/attachment-preview.svelte';
   import ToolSelector from '@/components/input/tool-selector.svelte';
+  import ProviderSelector from '@/components/input/provider-selector.svelte';
   import type { MCPTool } from '@/types/mcp';
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
+    import type { ProviderConfig } from '@/ipc/genai/types';
 
   interface Props {
     placeholder?: string;
@@ -14,6 +16,14 @@
     config?: ChatConfig;
     class?: string;
     availableTools?: MCPTool[];
+
+
+    providers: ProviderConfig[];
+    configuredProviderNames: string[];
+    selectedProvider: string;
+    selectedModel: string;
+    onModelSelect?: (model: string, provider: string) => void;
+
     onSend?: (data: {
       content: string,
       attachments: ChatAttachment[] | undefined,
@@ -32,7 +42,15 @@
     disabled = false,
     config = {},
     class: className = '',
+    
     availableTools,
+
+    providers,
+    configuredProviderNames,
+    selectedProvider,
+    selectedModel,
+    onModelSelect,
+
     onSend,
     onError,
     onAttachmentAdd,
@@ -321,7 +339,7 @@
         <button
           type="button"
           class={cn(
-            "p-2 rounded-md transition-colors",
+            "p-2 rounded-md transition-colors flex-shrink-0",
             showVoiceInput 
               ? "text-primary bg-primary/10" 
               : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -337,6 +355,17 @@
           {/if}
         </button>
       {/if}
+
+      <div class="flex-shrink-0 inline-block">
+        <ProviderSelector
+          providers={providers}
+          configuredProviderNames={configuredProviderNames}
+          selectedProvider={selectedProvider}
+          selectedModel={selectedModel}
+          onModelSelect={onModelSelect}
+          disabled={disabled}
+        />
+      </div>
     
       <!-- Send button -->
       <button
