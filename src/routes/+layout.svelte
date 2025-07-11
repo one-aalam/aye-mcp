@@ -2,9 +2,10 @@
     import { goto } from '$app/navigation';
     import { getMessageThreadContext, setMessageThreadContext } from '@/stores/message-thread.svelte';
     import { setAppPrefsContext, getAppPrefsContext } from '@/stores/app-prefs.svelte';
+    import { setProviderManagerContext } from '@/stores/provider-manager.svelte';
     import { setMCPToolContext } from '@/stores/mcp-tool.svelte';
     import { cn } from '../lib';
-	import '../app.css';
+	  import '../app.css';
     import ThreadSidebar from '@/components/sidebar/thread-sidebar.svelte';
 	
 	let { children } = $props();
@@ -14,6 +15,7 @@
 
     setMessageThreadContext();
     setAppPrefsContext();
+    setProviderManagerContext();
     setMCPToolContext();
 
     const messageThread = getMessageThreadContext();

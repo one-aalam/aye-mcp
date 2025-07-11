@@ -16,8 +16,8 @@
 
       SettingsIcon,
 
-      MessageCircle
-
+      MessageCircle,
+      HandPlatter,
 
     } from '@lucide/svelte';
   
@@ -176,6 +176,7 @@
       {/if}
       <div class="flex flex-col gap-2 py-2">
         <a href="/settings" class="flex items-center gap-2"><SettingsIcon class="w-4 h-4" /> Settings</a>
+        <a href="/providers" class="flex items-center gap-2"><HandPlatter class="w-4 h-4" /> Providers</a>
         <a href="/" class="flex items-center gap-2"><MessageCircle class="w-4 h-4" /> Chat</a>
       </div>
     </div>
