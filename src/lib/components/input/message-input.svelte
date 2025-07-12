@@ -6,16 +6,16 @@
   import AttachmentPreview from '@/components/attchments/attachment-preview.svelte';
   import ToolSelector from '@/components/input/tool-selector.svelte';
   import ProviderSelector from '@/components/input/provider-selector.svelte';
-  import type { MCPTool } from '@/types/mcp';
+  import type { MCPToolServerDef } from '@/types/mcp';
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
-    import type { ProviderConfig } from '@/ipc/genai/types';
+  import type { ProviderConfig } from '@/ipc/genai/types';
 
   interface Props {
     placeholder?: string;
     disabled?: boolean;
     config?: ChatConfig;
     class?: string;
-    availableTools?: MCPTool[];
+    toolServers?: MCPToolServerDef[];
 
 
     providers: ProviderConfig[];
@@ -43,7 +43,7 @@
     config = {},
     class: className = '',
     
-    availableTools,
+    toolServers = [],
 
     providers,
     configuredProviderNames,
@@ -319,7 +319,7 @@
           ><Wrench class="w-4 h-4" /></DropdownMenu.Trigger>
           <DropdownMenu.Content class="absolute bottom-6 left-2">
             <ToolSelector
-              tools={availableTools}
+              toolServers={toolServers}
               selectedTools={selectedTools}
               onToggleTool={(toolName) => {
                 if (selectedTools.includes(toolName)) {

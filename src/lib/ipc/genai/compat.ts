@@ -1,14 +1,14 @@
-import type { MCPToolSchema } from "@/types/mcp";
+import type { MCPTool } from "@/types/mcp";
 import type { GenaiToolDef } from "./types";
 
-export function toGenaiTool(tool: MCPToolSchema): GenaiToolDef {
+export function toGenaiTool(tool: MCPTool): GenaiToolDef {
     return {
-        name: tool.function.name,
-        description: tool.function.description!,
+        name: tool.name,
+        description: tool.description || '',
         schema: {
             type: 'object',
-            properties: tool.function.parameters.properties,
-            required: tool.function.parameters.required || [],
+            properties: tool.schema.properties,
+            required: tool.schema.required || [],
         },
     };
 }

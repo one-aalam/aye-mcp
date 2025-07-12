@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { MCPTool, MCPServerEvent } from '@/types/mcp';
-import { createConfigServerId, ServerIdManager } from './server-id';
+import type { MCPTool, MCPServerEvent, MCPToolServerDef, MCPToolDef } from '@/types/mcp';
+import { createConfigServerId, getServerName, ServerIdManager } from './server-id';
+import { prepareMCPToolName } from '@/config';
 
 export interface MCPConfig {
   id: string;
@@ -38,8 +39,10 @@ export class MCPManager {
   private servers = new Map<string, MCPServerStatus>();
   private pollingInterval: number | null = null;
 
-  constructor() {
-    this.startStatusPolling();
+  constructor(usePolling: boolean = false) {
+    if (usePolling) {
+      this.startStatusPolling();
+    }
   }
 
   // Add a server using the Rust backend
@@ -146,16 +149,20 @@ export class MCPManager {
   }
 
   // Get all available tools from all servers
-  async getAllTools(): Promise<Array<{ serverId: string; serverName: string; tools: MCPTool[] }>> {
+  async getAllTools(): Promise<Array<MCPToolServerDef>> {
     try {
-      const toolData: Array<[string, MCPTool[]]> = await invoke('get_all_mcp_tools');
+      const toolData = await invoke<Array<[string, MCPToolDef[]]>>('get_all_mcp_tools');
       
       return toolData.map(([serverId, tools]) => {
         const server = this.servers.get(serverId);
         return {
           serverId,
-          serverName: server?.name || serverId,
-          tools
+          serverName: server?.name || getServerName(serverId),
+          tools: tools.map(tool => ({
+            ...tool,
+            serverId,
+            name: prepareMCPToolName(serverId, tool.name),
+          }))
         };
       });
     } catch (error) {

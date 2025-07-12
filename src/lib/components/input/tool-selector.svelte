@@ -1,16 +1,15 @@
 <script lang="ts">
-  import type { MCPTool } from '@/types/mcp';
-  import { Search, Wrench, Delete } from '@lucide/svelte';
+  import type { MCPToolDef, MCPToolServerDef } from '@/types/mcp';
+  import { Search, Delete } from '@lucide/svelte';
   import * as Command from "$lib/components/ui/command/index.js";
   import * as Tooltip from "$lib/components/ui/tooltip/index.js";
   import { Switch } from "$lib/components/ui/switch/index.js";
   import { cn } from '@/utils';
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
-  import { getServerName } from '@/mcp/server-id';
     
 
   interface Props {
-    tools: MCPTool[];
+    toolServers: MCPToolServerDef[];
     selectedTools: string[];
     searchQuery?: string;
     onToggleTool: (toolName: string) => void;
@@ -19,7 +18,7 @@
   }
 
   let {
-    tools,
+    toolServers,
     selectedTools,
     searchQuery = '',
     onToggleTool,
@@ -30,47 +29,8 @@
   let searchInput: HTMLInputElement;
   let localSearchQuery = $state(searchQuery);
 
-  // Group tools by server
-  let toolsByServer = $derived.by(() => {
-    const grouped = new Map<string, { serverName: string; tools: MCPTool[] }>();
-    
-    for (const tool of filteredTools) {
-      if (!tool.server_id) {
-        console.warn('Tool missing server_id:', tool);
-        continue;
-      }
-      // Use centralized server name resolution
-      const serverName = getServerName(tool.server_id);
-      if (!grouped.has(tool.server_id)) {
-        grouped.set(tool.server_id, { serverName, tools: [] });
-      }
-      grouped.get(tool.server_id)!.tools.push(tool);
-    }
-    
-    // Sort servers by name for consistent display
-    return Array.from(grouped.values()).sort((a, b) => a.serverName.localeCompare(b.serverName));
-  });
-
-  let filteredTools = $derived.by(() => {
-    if (!localSearchQuery.trim()) return tools;
-    
-    const query = localSearchQuery.toLowerCase();
-    return tools.filter(tool => {
-      // Search in tool name, description, and server name
-      const serverName = tool.server_id ? getServerName(tool.server_id) : '';
-
-      return tool.name.toLowerCase().includes(query) ||
-      tool.description?.toLowerCase().includes(query) ||
-      serverName.toLowerCase().includes(query)
-    });
-  });
-
   function isToolSelected(toolName: string): boolean {
     return selectedTools.includes(toolName);
-  }
-
-  function handleToolToggle(tool: MCPTool) {
-    onToggleTool(tool.name);
   }
 
   function handleKeyDown(event: KeyboardEvent) {
@@ -79,7 +39,7 @@
     }
   }
 
-  function getToolIcon(tool: MCPTool): string {
+  function getToolIcon(tool: MCPToolDef): string {
     // Return appropriate icon based on tool type/category
     const name = tool.name.toLowerCase();
     
@@ -118,7 +78,7 @@
 <DropdownMenu.Group class="w-52">
   <DropdownMenu.Label>Select Tools <span class="text-sm text-muted-foreground">({selectedTools.length} selected)</span></DropdownMenu.Label>
   <DropdownMenu.Separator />
-  {#if toolsByServer.length === 0}
+  {#if toolServers.length === 0}
       <div class="p-8 text-center text-muted-foreground w-52">
         {#if localSearchQuery.trim()}
           <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -148,7 +108,7 @@
       </div>
     </div>
   {:else}
-    {#each toolsByServer as serverGroup}
+    {#each toolServers as serverGroup}
       <DropdownMenu.Sub>
         <DropdownMenu.SubTrigger>{serverGroup.serverName} <span class="text-sm text-muted-foreground">({serverGroup.tools.length} tools)</span></DropdownMenu.SubTrigger>
         <DropdownMenu.SubContent>
@@ -162,14 +122,12 @@
                       {@const selected = isToolSelected(tool.name)}
                         <Command.Item class={cn(selected && 'bg-primary/5')}>
                           <Tooltip.Root>
-                            <Tooltip.Trigger class={cn('flex items-center w-full')} onclick={() => handleToolToggle(tool)}>
-                              {#if selected}
-                                <Wrench class="w-4 h-4 text-primary" />
-                              {:else}
-                                <Wrench class="w-4 h-4 text-muted-foreground" />
-                              {/if}
-                              <span class="ml-2 font-medium truncate">{tool.name.replace('mcp_config_filesystem__', '')}</span>
-                              <Switch class="ml-auto" checked={selected} onCheckedChange={() => handleToolToggle(tool)} />
+                            <Tooltip.Trigger class={cn('flex items-center w-full')} onclick={() => onToggleTool(tool.name)}>
+                              <svg xmlns="http://www.w3.org/2000/svg" class={cn(selected && 'text-primary', 'w-4 h-4')} fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d={renderIcon(getToolIcon(tool))} />
+                              </svg>
+                              <span class="ml-2 font-medium truncate">{tool.name.replace('mcp_', '').replace(`${serverGroup.serverName}_`, '')}</span>
+                              <Switch class="ml-auto" checked={selected} onCheckedChange={() => onToggleTool(tool.name)} />
                             </Tooltip.Trigger>
                             <Tooltip.Content class="w-64">
                               <span>{tool.description}</span>

@@ -7,7 +7,7 @@
   import PromptSuggestions from '@/components/ui/prompt-suggestions.svelte';
   import TypingIndicator from '@/components/ui/typing-indicator.svelte';
   import ThemeToggle from '@/components/ui/theme-toggle.svelte';
-  import type { MCPTool } from '@/types/mcp.js';
+  import type { MCPToolServerDef } from '@/types/mcp.js';
   import { getMessageThreadContext } from '@/stores/message-thread.svelte.js';
   import { getAppPrefsContext } from '@/stores/app-prefs.svelte.js';
   import type { ProviderConfig } from '@/ipc/genai/types';
@@ -19,7 +19,7 @@
     showHeader?: boolean;
     showPromptSuggestions?: boolean;
     class?: string;
-    availableTools?: MCPTool[];
+    toolServers?: MCPToolServerDef[];
 
     providers?: ProviderConfig[];
     configuredProviderNames?: string[];
@@ -52,7 +52,7 @@
     showHeader = true,
     showPromptSuggestions = true,
     class: className = '',
-    availableTools = [],
+    toolServers = [],
     
     providers = [],
     configuredProviderNames = [],
@@ -237,7 +237,7 @@
     <div class="p-4">
       <MessageInput 
         config={appPrefs.config}
-        availableTools={availableTools}
+        toolServers={toolServers}
         providers={providers}
         configuredProviderNames={configuredProviderNames}
         selectedProvider={selectedProvider}

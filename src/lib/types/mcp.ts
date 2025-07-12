@@ -23,6 +23,22 @@ export interface MCPServer {
     created_at: string;
     updated_at: string;
   }
+
+  export interface MCPToolDef {
+    name: string;
+    description: string;
+    schema: {
+      type: 'object';
+      properties: Record<string, MCPParameter>;
+      required?: string[];
+    };
+  }
+
+  export interface MCPToolServerDef {
+    serverId: string;
+    serverName: string;
+    tools: MCPToolDef[];
+  }
   
   export interface MCPToolSchema {
     type: 'function';

@@ -303,7 +303,7 @@
     {/if}
     <ChatContainer
     initialConfig={appPrefs.config}
-    availableTools={mcpTool.tools}
+    toolServers={mcpTool.toolServers}
 
 
     providers={providerManager.providers}

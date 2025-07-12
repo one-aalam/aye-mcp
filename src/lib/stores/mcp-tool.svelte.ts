@@ -1,13 +1,13 @@
 import { getContext, setContext } from "svelte";
 import { mcpManager } from "@/mcp/mcp-manager";
-import { prepareMCPToolName } from "@/config";
-import type { MCPServerEvent, MCPTool } from "@/types/mcp";
+import type { MCPServerEvent, MCPToolDef, MCPToolServerDef } from "@/types/mcp";
 import type { StartupResult } from "@/mcp/startup-manager";
 
 const MCP_TOOL_KEY = Symbol("mcp_tool");
 
 export class MCPToolStore {
-    tools = $state<MCPTool[]>([]);
+    tools = $state<MCPToolDef[]>([]);
+    toolServers = $state<MCPToolServerDef[]>([]);
     isLoading = $state(false);
     isLoadingTools = $state(false);
     isInitialized = $state(false);
@@ -61,29 +61,9 @@ export class MCPToolStore {
         this.tools = [];
 
         try {
-            const servers = await mcpManager.getAllTools();
-            console.log(servers)
-            const tools: MCPTool[] = [];
-            // for (const server of servers) {
-            //   if (server.is_enabled && server.status === 'connected' && server.tools) {
-            //     tools.push(...server.tools.filter(tool => tool.is_enabled).map(tool => ({
-            //       ...tool,
-            //       serverId: server.id,
-            //       serverName: server.name,
-            //       type: 'mcp'
-            //     })));
-            //   }
-            // }
-      
-            servers.forEach(server => {
-              tools.push(...(server.tools.map(tool => ({
-                ...tool,
-                server_id: server.serverId,
-                name: prepareMCPToolName(server.serverId, tool.name),
-              }))));
-            });
-            this.tools = tools;
-            console.log(`Loaded ${tools.length} MCP tools from ${servers.length} servers`);
+            this.toolServers = await mcpManager.getAllTools();
+            this.tools = this.toolServers.map(server => server.tools).flat();
+            console.log(`Loaded ${this.tools.length} MCP tools from ${this.toolServers.length} servers`);
         } catch (error) {
             console.error('Failed to load MCP tools:', error);
         } finally {
