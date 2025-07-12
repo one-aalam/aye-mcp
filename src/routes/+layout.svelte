@@ -1,5 +1,6 @@
 <script lang="ts">
     import { goto } from '$app/navigation';
+    import { Toaster } from '@/components/ui/sonner';
     import { getMessageThreadContext, setMessageThreadContext } from '@/stores/message-thread.svelte';
     import { setAppPrefsContext, getAppPrefsContext } from '@/stores/app-prefs.svelte';
     import { setProviderManagerContext } from '@/stores/provider-manager.svelte';
@@ -90,5 +91,6 @@
     ></div>
   {/if}
 </div>
+<Toaster />
     {@render children()}
 </main>
