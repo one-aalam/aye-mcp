@@ -1,18 +1,16 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { ChatAttachment } from "@/types";
-  import { MCP_SERVERS, parseMCPToolName } from "@/config";
   import ChatContainer from "@/components/chat/chat-container.svelte";
   import MCPStatusAlert from "@/components/mcp/mcp-status-alert.svelte";
-  import { get_current_weather } from "../lib/tools/impl";
   import { mcpManager } from "@/mcp/mcp-manager";
   import { getMessageThreadContext } from "@/stores/message-thread.svelte.js";
   import { getAppPrefsContext } from "@/stores/app-prefs.svelte.js";
   import { getMCPToolContext } from "@/stores/mcp-tool.svelte.js";
   import { getProviderManagerContext } from "@/stores/provider-manager.svelte.js";
-  import type { GenaiToolCall } from "@/ipc/genai/types";
   import { get_current_weather_genai } from "@/ipc/genai/tooldefs";
   import {listenToStream, sendMessage, streamMessage} from "@/ipc/genai/invoke";
+  import { executeToolCall, ToolExecutionManager } from "@/tools/exec-mgr";
   import { mcpStartupManager } from "@/mcp/startup-manager";
 
   const messageThread = getMessageThreadContext();
@@ -21,10 +19,6 @@
   const providerManager = getProviderManagerContext();
 
   let selectedProvider = $state<string | undefined>(undefined);
-
-  const availableLocalTools = {
-    get_current_weather,
-  };
 
   appPrefs.updateConfig({
     enableVoiceInput: true,
@@ -41,33 +35,6 @@
     enableDelete: true,
   })
 
-  async function handleToolCalls(toolCalls: GenaiToolCall[]) {
-        for (const toolCall of toolCalls) {
-          const toolName = toolCall.fn_name;
-          let toolOutput: string | null = null;
-          try {
-            if(toolCall.fn_name.startsWith(MCP_SERVERS.TOOLS_PREFIX)) {
-              const { serverId, toolName: actualToolName } = parseMCPToolName(toolCall.fn_name);
-              const result = await mcpManager.callTool(serverId!, actualToolName, toolCall.fn_arguments);
-              toolOutput = JSON.stringify(result);
-            } else {
-            // @ts-ignore
-              const functionToCall = availableLocalTools[toolName];
-              if (functionToCall) {
-                const result = await functionToCall(toolCall.fn_arguments);
-                toolOutput = JSON.stringify(result);
-              } else {
-                toolOutput = 'Function not found';
-              }
-            }
-          } catch (error) {
-            toolOutput = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-          }
-          messageThread.addToolOutputToMessageHistory(toolOutput!, toolCall.tool_id!);
-        }
-  }
-
-
   /**
    * Handles the message send event to the Rust backend
    * @param data The message data
@@ -79,30 +46,48 @@
     // 1. Make a call to the LLM
     messageThread.setTyping(true);
     const allTools = [get_current_weather_genai];
+    const toolManager = new ToolExecutionManager();
     const response = await sendMessage({
       model: providerManager.selectedModel!,
-      messages: messageThread.messageHistory,
+      messages: messageThread.getMessageHistoryForProvider(providerManager.selectedProvider!),
       tools: allTools,
     });
 
     // 2. Process the response
     if(response) {
       messageThread.setTyping(false);
-      await messageThread.addAssistantMessage(response.message, response.metadata as unknown as Record<string, unknown>);
+      await messageThread.addAssistantMessage(response.message, {...response.metadata as unknown as Record<string, unknown>, tool_calls: response.tool_calls || []});
       // 3. Handle tool calls
       if(response.tool_calls && response.tool_calls.length > 0) {
         // Process tool calls from the response
         messageThread.setTyping(true);
-        await handleToolCalls(response.tool_calls);
+        const allToolCalls = toolManager.mergeEndToolCalls(response.tool_calls);
+        for (const toolCall of allToolCalls) {
+          if (!toolManager.hasToolResult(toolCall.call_id)) {
+            try {
+              const result = await executeToolCall(toolCall);
+              toolManager.addToolResult(toolCall.call_id, result);
+            } catch (error) {
+              toolManager.addToolResult(toolCall.call_id, { error: error.message });
+            }
+          }
+        }
+        for (const [toolCallId, result] of toolManager.getAllResults()) {
+          messageThread.addToolResultToMessageHistory(
+            toolCallId, 
+            JSON.stringify(result)
+          );
+        }
         messageThread.setTyping(false);
       }
       // 4. Send to LLM for final response
       messageThread.setTyping(true);
       const finalResponse = await sendMessage({
         model: providerManager.selectedModel!,
-        messages: messageThread.messageHistory
+        messages: messageThread.getMessageHistoryForProvider(providerManager.selectedProvider!),
       });
       messageThread.setTyping(false);
+      toolManager.clear();
 
       if(finalResponse) {
         await messageThread.addAssistantMessage(finalResponse.message, finalResponse.metadata as unknown as Record<string, unknown>);
@@ -121,6 +106,9 @@
     await messageThread.addUserMessage(data.content, data.attachments);
     messageThread.setTyping(true);
     let assistantMessageId = await messageThread.addPlaceholderAssistantMessage();
+
+    // Track tool calls and their results
+    const toolManager = new ToolExecutionManager();
     
     try {
         // Listen for streaming events
@@ -133,25 +121,78 @@
           },
           onToolCall: async (toolCall) => {
             if(toolCall) {
-              console.log('ToolCall:', toolCall)
+              console.log('ToolCall received:', toolCall);
+
+              toolManager.addToolCall(toolCall);
+          
+              // IMMEDIATE EXECUTION for better UX
+              try {
+                const result = await executeToolCall(toolCall);
+                toolManager.addToolResult(toolCall.call_id, result);
+                console.log(`Tool ${toolCall.fn_name} executed:`, result);
+                
+                // Optional: Show immediate feedback to user
+                // messageThread.updatePlaceholderAssistantMessage(
+                //   `${chunk.accumulated}\n\n🔧 Executed ${toolCall.fn_name}...`
+                // );
+                
+              } catch (error) {
+                console.error('Tool execution failed:', error);
+                toolManager.addToolResult(toolCall.call_id, { error: error.message });
+              }
+            } else {
+              console.log('No tool call received');
             }
           },
           onEnd: async (end) => {
             messageThread.setTyping(false);
             await messageThread.finalizePlaceholderAssistantMessage(assistantMessageId);
-            if(end.tool_calls && end.tool_calls.length > 0) {
+            const shouldWrapUp = end.tool_calls?.length;
+            // Combine streaming tool calls with any from onEnd
+            const allToolCalls = toolManager.mergeEndToolCalls(end.tool_calls);
+            // Execute any remaining tool calls that weren't executed during streaming
+            for (const toolCall of allToolCalls) {
+              if (!toolManager.hasToolResult(toolCall.call_id)) {
+                try {
+                  const result = await executeToolCall(toolCall);
+                  toolManager.addToolResult(toolCall.call_id, result);
+                } catch (error) {
+                  toolManager.addToolResult(toolCall.call_id, { error: error.message });
+                }
+              }
+            }
+            
+            if(toolManager.hasAnyToolCalls()) {
+              console.log('Final tool calls:', allToolCalls);
+          
+              // Add tool calls to message history as assistant message
+              await messageThread.finalizePlaceholderAssistantMessage(assistantMessageId, allToolCalls);
+
+              // Add all tool results to message history
+              for (const [toolCallId, result] of toolManager.getAllResults()) {
+                messageThread.addToolResultToMessageHistory(
+                  toolCallId, 
+                  JSON.stringify(result)
+                );
+              }
+          
+              console.log('Updated message history:', messageThread.getMessageHistoryForProvider(providerManager.selectedProvider!));
+              
+              // Continue conversation with tool results
               assistantMessageId = await messageThread.addPlaceholderAssistantMessage();
-              await handleToolCalls(end.tool_calls);
               messageThread.setTyping(true);
+
+              toolManager.clear();
+
               await streamMessage({
                 model: providerManager.selectedModel!,
-                messages: messageThread.messageHistory,
-                tools: [
-                  get_current_weather_genai
-                ]
+                messages: messageThread.getMessageHistoryForProvider(providerManager.selectedProvider!),
+                tools: shouldWrapUp ?  [] : [get_current_weather_genai],
               });
               messageThread.setTyping(false);
             } else {
+              await messageThread.finalizePlaceholderAssistantMessage(assistantMessageId);
+              toolManager.clear();
               await unlisten();
             }
           },
@@ -159,6 +200,7 @@
             messageThread.updatePlaceholderAssistantMessage(`Error: ${error}`);
             await messageThread.finalizePlaceholderAssistantMessage(assistantMessageId);
             messageThread.setTyping(false);
+            toolManager.clear();
             await unlisten();
           }
         })
@@ -166,7 +208,7 @@
         // Start the stream
         await streamMessage({
             model: providerManager.selectedModel!,
-            messages: messageThread.messageHistory,
+            messages: messageThread.getMessageHistoryForProvider(providerManager.selectedProvider!),
             tools: [
               get_current_weather_genai
             ],
@@ -176,6 +218,7 @@
         messageThread.updatePlaceholderAssistantMessage(`Error: ${err}`);
         messageThread.finalizePlaceholderAssistantMessage(assistantMessageId);
         messageThread.setTyping(false);
+        toolManager.clear();
     }
   }
 
@@ -242,8 +285,7 @@
         mcpTool.isLoading = true;
         await providerManager.initialize();
         const { total } = await mcpStartupManager.initializeFromConfig();
-        await mcpTool.initialize(total);
-       
+        await mcpTool.initialize(total);       
       } catch (error) {
         mcpTool.initError = error instanceof Error ? error.message : 'Unknown error';
       } finally {
