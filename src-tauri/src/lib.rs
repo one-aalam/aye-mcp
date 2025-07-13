@@ -19,20 +19,36 @@ pub fn run() {
             sql: r#"
                     CREATE TABLE IF NOT EXISTS chat_threads (
                         id TEXT PRIMARY KEY NOT NULL,
+                        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
                         title TEXT NOT NULL,
                         description TEXT,
-                        project_id TEXT,
+                        is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+                        is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+
+                        -- Thread-specific settings that can override project defaults
                         model_provider TEXT NOT NULL DEFAULT '',
                         model_name TEXT NOT NULL DEFAULT '',
                         system_prompt TEXT,
                         tool_presets TEXT DEFAULT '[]', -- JSON array of tool IDs
                         settings TEXT DEFAULT '{}', -- JSON object for additional settings
+
+                        -- Thread metadata
                         message_count INTEGER DEFAULT 0,
                         total_tokens INTEGER DEFAULT 0,
-                        is_archived BOOLEAN DEFAULT FALSE,
-                        is_pinned BOOLEAN DEFAULT FALSE,
-                        tags TEXT DEFAULT '[]', -- JSON array of tags,
                         last_message_at TIMESTAMP,
+                        tags TEXT DEFAULT '[]', -- JSON array of tags,
+                        status TEXT DEFAULT 'active', -- active, completed, archived
+
+                        -- Performance tracking
+                        avg_response_time REAL DEFAULT 0.0,
+                        error_count INTEGER DEFAULT 0,
+
+                        -- Thread organization
+                        parent_thread_id TEXT REFERENCES chat_threads(id) ON DELETE SET NULL,
+                        thread_type TEXT DEFAULT 'chat', -- chat, task, brainstorm, review, etc.
+                        priority INTEGER DEFAULT 1, -- 1=Low, 2=Medium, 3=High
+
+                        -- Timestamps
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
                     );
@@ -46,16 +62,27 @@ pub fn run() {
             sql: r#"
                 CREATE TABLE IF NOT EXISTS chat_messages (
                     id TEXT PRIMARY KEY NOT NULL,
-                    thread_id TEXT NOT NULL,
-                    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+                    thread_id TEXT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
                     content TEXT NOT NULL,
                     attachments TEXT DEFAULT '[]', -- JSON array of attachments
                     thinking TEXT DEFAULT '{}', -- JSON object for thinking process
                     tool_calls TEXT DEFAULT '[]', -- JSON array for tool calls
                     metadata TEXT DEFAULT '{}', -- JSON object for additional metadata
+
+                    -- Message organization
+                    parent_message_id TEXT REFERENCES chat_messages(id) ON DELETE SET NULL,
+                    -- is_edited BOOLEAN DEFAULT FALSE,
+                    -- edit_history TEXT DEFAULT '[]', -- JSON array of previous versions
+
+                    -- Performance tracking
+                    response_time REAL, -- Time taken to generate (for assistant messages)
+                    model_used TEXT, -- Track which model generated this message
+                    provider_used TEXT, -- Track which provider was used
+
+                    -- Timestamps
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                    FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
                 );
             "#,
             kind: MigrationKind::Up,
@@ -70,13 +97,22 @@ pub fn run() {
                     name TEXT NOT NULL,
                     description TEXT,
                     system_prompt TEXT,
-                    default_model_provider TEXT NOT NULL DEFAULT 'openai',
-                    default_model_name TEXT NOT NULL DEFAULT 'gpt-4',
+                    default_model_provider TEXT NOT NULL DEFAULT '',
+                    default_model_name TEXT NOT NULL DEFAULT '',
                     tool_presets TEXT DEFAULT '[]', -- JSON array of tool IDs
                     settings TEXT DEFAULT '{}', -- JSON object
+                    is_archived BOOLEAN DEFAULT FALSE,
+
+                    -- Additional fields for enhanced project management
+                    color TEXT DEFAULT '#3b82f6', -- Project color for visual organization
+                    icon TEXT DEFAULT 'folder', -- Icon identifier
+                    priority INTEGER DEFAULT 1, -- 1=Low, 2=Medium, 3=High
+                    tags TEXT DEFAULT '[]', -- JSON array of tags
+                    folder_path TEXT, -- Optional folder path for file associations
+
+                    -- Timestamps
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                    is_archived BOOLEAN DEFAULT FALSE
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
                 );
             "#,
             kind: MigrationKind::Up,
@@ -98,8 +134,9 @@ pub fn run() {
                 CREATE INDEX IF NOT EXISTS idx_chat_threads_pinned ON chat_threads(is_pinned);
 
                 -- Index for projects
-                CREATE INDEX IF NOT EXISTS idx_projects_created_at ON projects(created_at);
+                CREATE INDEX IF NOT EXISTS idx_projects_created_at ON projects(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(is_archived);
+                CREATE INDEX IF NOT EXISTS idx_projects_updated_at ON projects(updated_at DESC);
             "#,
             kind: MigrationKind::Up,
         },
@@ -154,47 +191,9 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
-        // Migration 6: Create default thread for existing messages
+        // Migration 6: Create mcp_servers table
         Migration {
             version: 6,
-            description: "create_default_thread_for_existing_messages",
-            sql: r#"
-                INSERT OR IGNORE INTO chat_threads (
-                    id, 
-                    title, 
-                    description,
-                    project_id,
-                    model_provider,
-                    model_name,
-                    system_prompt,
-                    created_at,
-                    updated_at
-                ) VALUES (
-                    'default_thread',
-                    'Default Conversation',
-                    'Auto-created thread for existing messages',
-                    'default_project',    
-                    'openai',
-                    'gpt-4',
-                    '',
-                    datetime('now'),
-                    datetime('now')
-                );
-                
-                -- Update message count for default thread
-                UPDATE chat_threads 
-                SET message_count = (
-                    SELECT COUNT(*) FROM chat_messages WHERE thread_id = 'default_thread'
-                ),
-                last_message_at = (
-                    SELECT MAX(created_at) FROM chat_messages WHERE thread_id = 'default_thread'
-                )
-                WHERE id = 'default_thread';
-            "#,
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 7,
             description: "create_mcp_servers_table",
             sql: r#"
                 CREATE TABLE IF NOT EXISTS mcp_servers (
@@ -213,8 +212,9 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+        // Migration 7: Create mcp_tools table
         Migration {
-            version: 8,
+            version: 7,
             description: "create_mcp_tools_table",
             sql: r#"
                 CREATE TABLE IF NOT EXISTS mcp_tools (
@@ -230,6 +230,117 @@ pub fn run() {
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_tools_server ON mcp_tools(server_id);
+            "#,
+            kind: MigrationKind::Up,
+        },
+        // Migration 8: Create project_stats_view
+        Migration {
+            version: 8,
+            description: "create_project_stats_view",
+            sql: r#"
+                CREATE VIEW IF NOT EXISTS project_stats_view AS
+                SELECT 
+                    p.id,
+                    p.name,
+                    p.status,
+                    COUNT(DISTINCT t.id) as thread_count,
+                    COUNT(DISTINCT CASE WHEN t.status = 'active' THEN t.id END) as active_threads,
+                    COUNT(DISTINCT m.id) as total_messages,
+                    SUM(COALESCE(m.tokens, 0)) as total_tokens,
+                    MAX(t.last_message_at) as last_activity,
+                    p.created_at,
+                    p.updated_at,
+                    p.last_accessed_at
+                FROM projects p
+                LEFT JOIN chat_threads t ON p.id = t.project_id
+                LEFT JOIN chat_messages m ON t.id = m.thread_id
+                GROUP BY p.id;
+            "#,
+            kind: MigrationKind::Up,
+        },
+        // Migration 9: Create recent_projects_view
+        Migration {
+            version: 9,
+            description: "create_recent_projects_view",
+            sql: r#"
+                CREATE VIEW IF NOT EXISTS recent_projects_view AS
+                SELECT *
+                FROM projects
+                WHERE is_archived = FALSE
+                ORDER BY 
+                    CASE WHEN last_accessed_at IS NOT NULL THEN last_accessed_at ELSE updated_at END DESC
+            "#,
+            kind: MigrationKind::Up,
+        },
+        // Migration 10: Create project_templates_table
+        Migration {
+            version: 10,
+            description: "create_project_templates_table",
+            sql: r#"
+                CREATE TABLE IF NOT EXISTS project_templates (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    system_prompt TEXT,
+                    default_model_provider TEXT NOT NULL DEFAULT 'openai',
+                    default_model_name TEXT NOT NULL DEFAULT 'gpt-4',
+                    tool_presets TEXT NOT NULL DEFAULT '[]',
+                    settings TEXT NOT NULL DEFAULT '{}',
+                    color TEXT DEFAULT '#3b82f6',
+                    icon TEXT DEFAULT 'folder',
+                    tags TEXT DEFAULT '[]',
+                    usage_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+                );
+            "#,
+            kind: MigrationKind::Up,
+        },
+        // Migration 11: Create default_project
+        Migration {
+            version: 11,
+            description: "create_default_project",
+            sql: r#"
+                INSERT INTO projects (
+                    id,
+                    name,
+                    description,
+                    system_prompt,
+                    default_model_provider,
+                    default_model_name,
+                    tool_presets,
+                    settings,
+                    is_archived,
+
+                    color,
+                    icon,
+                    priority,
+                    tags,
+                    folder_path,
+                    
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    'default_project',
+                    'Default Project',
+                    'Auto-created project for default settings',
+                    '',
+                    '',
+                    '',
+                    '[]',
+                    '{}',
+                    0,
+
+
+                    '#3b82f6',
+                    'folder',
+                    1,
+                    '[]',
+                    '',
+
+                    datetime('now'),
+                    datetime('now')
+                );
             "#,
             kind: MigrationKind::Up,
         },
