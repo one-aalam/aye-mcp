@@ -42,7 +42,7 @@
    */
   async function handleMessageSendIPC(data: { content: string; attachments: ChatAttachment[] | undefined; }, selectedTools: string[] = []): Promise<void> {
     
-    await messageThread.addUserMessage(data.content, data.attachments);
+    const userMessageId = await messageThread.addUserMessage(data.content, data.attachments);
     // 1. Make a call to the LLM
     messageThread.setTyping(true);
     const allTools = [get_current_weather_genai];
@@ -73,9 +73,15 @@
           }
         }
         for (const [toolCallId, result] of toolManager.getAllResults()) {
-          messageThread.addToolResultToMessageHistory(
+          const toolCall = toolManager.getExecutedToolCall(toolCallId);
+          await messageThread.addToolResultToMessageHistory(
             toolCallId, 
-            JSON.stringify(result)
+            JSON.stringify(result),
+            {
+              threadId: messageThread.currentThreadId!,
+              parentMessageId: userMessageId,
+              toolCall,
+            }
           );
         }
         messageThread.setTyping(false);
@@ -103,9 +109,9 @@
    * @param selectedTools The selected tools
    */
   async function handleMessageStreamIPC(data: { content: string; attachments: ChatAttachment[] | undefined; }, selectedTools: string[] = []): Promise<void> {
-    await messageThread.addUserMessage(data.content, data.attachments);
+    const userMessageId = await messageThread.addUserMessage(data.content, data.attachments);
     messageThread.setTyping(true);
-    let assistantMessageId = await messageThread.addPlaceholderAssistantMessage();
+    let assistantMessageId = await messageThread.addPlaceholderAssistantMessage(userMessageId);
 
     // Track tool calls and their results
     const toolManager = new ToolExecutionManager();
@@ -170,16 +176,22 @@
 
               // Add all tool results to message history
               for (const [toolCallId, result] of toolManager.getAllResults()) {
-                messageThread.addToolResultToMessageHistory(
+                const toolCall = toolManager.getExecutedToolCall(toolCallId);
+                await messageThread.addToolResultToMessageHistory(
                   toolCallId, 
-                  JSON.stringify(result)
+                  JSON.stringify(result),
+                  {
+                    toolCall,
+                    threadId: messageThread.currentThreadId!,
+                    parentMessageId: userMessageId
+                  }
                 );
               }
           
               console.log('Updated message history:', messageThread.getMessageHistoryForProvider(providerManager.selectedProvider!));
               
               // Continue conversation with tool results
-              assistantMessageId = await messageThread.addPlaceholderAssistantMessage();
+              assistantMessageId = await messageThread.addPlaceholderAssistantMessage(userMessageId);
               messageThread.setTyping(true);
 
               toolManager.clear();

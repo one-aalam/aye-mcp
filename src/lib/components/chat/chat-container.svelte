@@ -11,6 +11,7 @@
   import { getMessageThreadContext } from '@/stores/message-thread.svelte.js';
   import { getAppPrefsContext } from '@/stores/app-prefs.svelte.js';
   import type { ProviderConfig } from '@/ipc/genai/types';
+  import { CUSTOM_SUGGESTIONS } from '@/constants.js';
 
   interface Props {
     initialMessages?: ChatMessage[];
@@ -84,6 +85,10 @@
     
     if (initialMessages.length > 0) {
       messageThread.setMessages(initialMessages);
+    } else {
+      if(!messageThread.hasThreads) {
+        appPrefs.setPromptSuggestions(CUSTOM_SUGGESTIONS);
+      }
     }
     if (Object.keys(initialConfig).length > 0) {
       appPrefs.updateConfig(initialConfig);

@@ -3,7 +3,8 @@ import { getMessagesByThread } from '@/db/chat_message';
 import type { 
   ChatAttachment,
     ChatMessage,
-    ChatThread
+    ChatThread,
+    ToolCall
 } from '@/types';
 import { getContext, onMount, setContext } from 'svelte';
 import { AppPrefs, getAppPrefsContext } from './app-prefs.svelte';
@@ -11,7 +12,7 @@ import { DEFAULT_THREAD_ID, genPromptWithSystemPrompt, MODEL, MODEL_PROVIDER, SY
 import { archiveThread, createThread, deleteThread, getThreads, pinThread } from '@/db/chat_thread';
 import { createMessage as persistMessage, updateMessage as updatePersistedMessage } from '@/db/chat_message';
 
-import { createAssistantChatMessage, createChatThread, createUserChatMessage } from '..';
+import { createAssistantChatMessage, createChatThread, createToolChatMessage, createUserChatMessage } from '..';
 
 // Provider-agnostic message format for API calls
 interface ProviderMessage {
@@ -45,6 +46,7 @@ export class MessageThread {
   
     threads = $state<ChatThread[]>([]);
     currentThreadId = $state<string | null>(null);
+    hasThreads = $derived(this.threads.length > 0);
 
     // Track pending tool calls for proper message history
     pendingToolCalls = $state<any[]>([]);
@@ -55,13 +57,12 @@ export class MessageThread {
       onMount(async () => {
         // Load threads
         this.threads = await getThreads();
-        if(this.threads.length) {
+        if(this.hasThreads) {
           // first start
           await this.handleSelectThread(localStorage.getItem(THREADS_SELECTED_KEY) || DEFAULT_THREAD_ID);
         } else {
           // first start
           this.pendingThreadCreate = true;
-          this.appPrefs.setPromptSuggestions(CUSTOM_SUGGESTIONS);
         }
       });
 
@@ -69,6 +70,7 @@ export class MessageThread {
         if(this.currentThreadId) {
           localStorage.setItem(THREADS_SELECTED_KEY, this.currentThreadId);
         }
+        console.log('came hoooooo...', getAppPrefsContext())
       });
     }
 
@@ -114,14 +116,14 @@ export class MessageThread {
       return assistantMessage.id;
     }
 
-    addPlaceholderAssistantMessage = async(): Promise<string> => {
+    addPlaceholderAssistantMessage = async(parentMessageId: string): Promise<string> => {
       const assistantMessage = createAssistantChatMessage('', {
         thread_id: this.currentThreadId!,
         metadata: {},
+        parent_message_id: parentMessageId,
       });
 
-      this.messages.push(assistantMessage);
-      
+      this.messages.push(assistantMessage); 
       // Don't add to messageHistory yet - wait for finalization
       
       await persistMessage(assistantMessage);
@@ -132,7 +134,7 @@ export class MessageThread {
       this.messages[this.messages.length - 1].content = message;
     }
 
-    finalizePlaceholderAssistantMessage = async(id: string, toolCalls?: any[]) => {
+    finalizePlaceholderAssistantMessage = async(id: string, toolCalls?: ToolCall[]) => {
       const finalContent = this.messages[this.messages.length - 1].content;
       
       // Add finalized content to message history
@@ -149,9 +151,9 @@ export class MessageThread {
       this.messageHistory.push(historyMessage);
 
       // Update persisted message
-      const updateData: any = { content: finalContent };
+      const updateData: Partial<ChatMessage> = { content: finalContent };
       if (toolCalls && toolCalls.length > 0) {
-        updateData.toolCalls = toolCalls;
+        updateData.tool_calls = toolCalls;
       }
       
       await updatePersistedMessage(
@@ -174,24 +176,34 @@ export class MessageThread {
     }
 
     // NEW: Add tool results to message history
-    addToolResultToMessageHistory = (toolCallId: string, result: string) => {
+    addToolResultToMessageHistory = async (toolCallId: string, result: string, options: {
+      toolCall: ToolCall,
+      threadId: string,
+      parentMessageId: string
+    }) => {
       this.messageHistory.push({
         role: 'tool',
         tool_call_id: toolCallId,
         content: result,
       });
-    }
 
-    // DEPRECATED: Keep for backward compatibility but log warning
-    addToolOutputToMessageHistory = (toolOutput: string, toolCallId: string) => {
-      console.warn('addToolOutputToMessageHistory is deprecated, use addToolResultToMessageHistory');
-      this.addToolResultToMessageHistory(toolCallId, toolOutput);
+      const toolMessage = await createToolChatMessage(result, {
+        thread_id: options.threadId,
+        parent_message_id: options.parentMessageId,
+        tool_calls: [options.toolCall],
+      });
+      await persistMessage(toolMessage);
+      return toolMessage.id;
     }
 
     // NEW: Handle multiple tool results
-    addMultipleToolResults = (toolResults: Array<{toolCallId: string, result: string}>) => {
+    addMultipleToolResults = (toolResults: Array<{toolCallId: string, result: string}>, options: {
+      toolCall: ToolCall,
+      threadId: string,
+      parentMessageId: string
+    }) => {
       toolResults.forEach(({toolCallId, result}) => {
-        this.addToolResultToMessageHistory(toolCallId, result);
+        this.addToolResultToMessageHistory(toolCallId, result, options);
       });
     }
 
@@ -326,8 +338,6 @@ export class MessageThread {
         // Reconstruct message history from stored messages
         this.messageHistory = this.reconstructMessageHistory(messages);
         this.setMessages(messages);
-      } else {
-        this.appPrefs.setPromptSuggestions(CUSTOM_SUGGESTIONS);
       }
     }
 

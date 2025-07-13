@@ -21,10 +21,11 @@ const toChatMessage = ({ attachments, thinking, tool_calls, metadata, created_at
 export const createMessage = async (message: ChatMessage) => {
     const db = await loadDB();
     const result = await db.execute(`INSERT INTO chat_messages (
-            id, thread_id, role, content, attachments, thinking, tool_calls, metadata, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, [
+            id, thread_id, parent_message_id, role, content, attachments, thinking, tool_calls, metadata, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, [
         message.id,
         message.thread_id,
+        message.parent_message_id,
         message.role,
         message.content,
         message.attachments,

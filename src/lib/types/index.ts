@@ -1,7 +1,8 @@
 export interface ChatMessage {
   id: string;
   thread_id: string;
-  role: 'user' | 'assistant' | 'system';
+  parent_message_id: string | null;
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   attachments: ChatAttachment[];
   thinking?: ThinkingProcess;
@@ -13,20 +14,31 @@ export interface ChatMessage {
 
 export interface ChatThread {
   id: string;
+  project_id?: string;
   title: string;
   description?: string;
-  project_id?: string;
+  is_archived: boolean;
+  is_pinned: boolean;
+
   model_provider?: string;
   model_name?: string;
   system_prompt?: string;
   tool_presets?: string[]; // JSON array stored as string in DB
   settings?: Record<string, unknown>; // JSON object stored as string in DB
+
   message_count: number;
   total_tokens: number;
-  is_archived: boolean;
-  is_pinned: boolean;
-  tags: string[]; // JSON array stored as string in DB
   last_message_at?: string; // ISO timestamp
+  tags: string[]; // JSON array stored as string in DB
+
+  status: 'active' | 'completed' | 'archived';
+  avg_response_time: number;
+  error_count: number;
+
+  parent_thread_id?: string;
+  thread_type: 'chat' | 'task' | 'brainstorm' | 'review' | 'other';
+  priority: number;
+
   created_at: Date; // ISO timestamp
   updated_at: Date; // ISO timestamp
 }

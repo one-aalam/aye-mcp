@@ -32,15 +32,33 @@ export const getThread = async (id: string): Promise<ChatThread | null> => {
 
 export const createThread = async (thread: ChatThread) => {
     const db = await loadDB();
-    const result = await db.execute('INSERT INTO chat_threads (id, title, description, model_provider, model_name, project_id,  system_prompt, last_message_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)', [
+    const result = await db.execute('INSERT INTO chat_threads (id, project_id, title, description, model_provider, model_name, system_prompt, tool_presets, settings, message_count, total_tokens, last_message_at, tags, status, avg_response_time, error_count, parent_thread_id, thread_type, priority, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)', [
         thread.id,
+        thread.project_id || 'default_project',
         thread.title,
         thread.description,
+
         thread.model_provider,
         thread.model_name,
-        thread.project_id,
         thread.system_prompt,
+        thread.tool_presets ? JSON.stringify(thread.tool_presets) : null,
+        JSON.stringify(thread.settings),
+
+        thread.message_count,
+        thread.total_tokens,
         thread.last_message_at,
+        JSON.stringify(thread.tags),
+
+        thread.status,
+        thread.avg_response_time,
+        thread.error_count,
+
+        thread.parent_thread_id ? thread.parent_thread_id : null,
+        thread.thread_type,
+        thread.priority,
+
+        thread.created_at,
+        thread.updated_at,
     ]);
     return result;
 }

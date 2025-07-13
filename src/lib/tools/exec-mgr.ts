@@ -45,6 +45,13 @@ export class ToolExecutionManager {
     hasAnyToolCalls(): boolean {
       return this.executedToolCalls.size > 0;
     }
+
+    getExecutedToolCall(toolCallId: string): any {
+      if(!this.executedToolCalls.has(toolCallId)) {
+        throw new Error(`Tool call ${toolCallId} not found`);
+      }
+      return this.executedToolCalls.get(toolCallId);
+    }
   
     clear(): void {
       this.executedToolCalls.clear();

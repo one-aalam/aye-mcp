@@ -68,6 +68,7 @@ export function createUserChatMessage(
     role: 'user',
     content,
     thread_id: options?.thread_id || DEFAULT_THREAD_ID,
+    parent_message_id: options?.parent_message_id || null,
     attachments: options?.attachments || [],
     thinking: undefined,
     tool_calls: [],
@@ -86,6 +87,7 @@ export function createAssistantChatMessage(
     role: 'assistant',
     content,
     thread_id: options?.thread_id || DEFAULT_THREAD_ID,
+    parent_message_id: options?.parent_message_id || '',
     attachments: [],
     thinking: options?.thinking || undefined,
     tool_calls: options?.tool_calls || [],
@@ -100,19 +102,55 @@ export function createChatThread(
   description?: string,
   options?: Partial<Omit<ChatThread, 'id' | 'created_at' | 'updated_at' | 'message_count' | 'total_tokens' | 'is_archived' | 'is_pinned' | 'tags' | 'last_message_at'>>
 ): ChatThread {
+  
   return {
+    ...options,
     id: nanoid(),
+    project_id: options?.project_id || '',
     title,
     description: description || '',
-    message_count: 0,
-    total_tokens: 0,
+
     is_archived: false,
     is_pinned: false,
+    model_provider: options?.model_provider || '',
+    model_name: options?.model_name || '',
+    system_prompt: options?.system_prompt || '',
+    tool_presets: options?.tool_presets || [],
+    settings: options?.settings || {},
+
+    message_count: 0,
+    total_tokens: 0,
     tags: [],
+    status: 'active',
+    avg_response_time: 0,
+    error_count: 0,
+
+    parent_thread_id: options?.parent_thread_id || '',
+    thread_type: 'chat',
+    priority: 1,
+    
     last_message_at: undefined,
     created_at: new Date(),
     updated_at: new Date(),
-    ...options,
+  };
+}
+
+export function createToolChatMessage(
+  content: string,
+  options?: Partial<Omit<ChatMessage, 'id' | 'content' | 'role'  | 'attachments' | 'thinking'  |  'created_at' | 'updated_at'>>
+): ChatMessage {
+  return {
+    id: nanoid(),
+    role: 'tool',
+    content,
+    thread_id: options?.thread_id || DEFAULT_THREAD_ID,
+    parent_message_id: options?.parent_message_id || '',
+    attachments: [],
+    thinking: undefined,
+    tool_calls: options?.tool_calls || [],
+    metadata: options?.metadata || {},
+    created_at: new Date(),
+    updated_at: new Date(),
   };
 }
   
